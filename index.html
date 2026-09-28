@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QA//LAB - AI Quality Engineering Platform</title>
+    <meta name="description" content="AI-assisted software testing and quality engineering platform: requirement analysis, structured test design, manual execution, failure triage, and bug generation." />
+    <meta property="og:title" content="QA//LAB - AI Quality Engineering Platform" />
+    <meta property="og:description" content="AI-assisted software testing and quality engineering platform: requirement analysis, structured test design, manual execution, failure triage, and bug generation." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Gracefully ignore WebSocket disconnections in cloud sandboxes / iframe preview
+      window.addEventListener('unhandledrejection', function(event) {
+        var str = (event && event.reason) ? String(event.reason.message || event.reason) : '';
+        if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      });
+      window.addEventListener('error', function(event) {
+        var str = (event && event.message) ? String(event.message) : '';
+        if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      });
+    </script>
+  </head>
+  <body class="bg-neutral-950 text-neutral-100 antialiased selection:bg-neutral-800 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

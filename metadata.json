@@ -1,0 +1,6 @@
+{
+  "name": "QA//LAB - AI Quality Engineering Platform",
+  "description": "AI-assisted software testing and quality engineering platform: requirement analysis, structured test design, manual execution, failure triage, and bug generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
