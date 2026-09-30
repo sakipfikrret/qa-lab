@@ -18,18 +18,18 @@ import { CommandPaletteModal } from './components/search/CommandPaletteModal';
 import { Project, Requirement, TestCase, TestRun, Bug, QAInsight, TestResult, AIFailureAnalysis } from './types/qa';
 import { api, AuthUser } from './services/api';
 import { AuthScreen } from './components/auth/AuthScreen';
-import { DEMO_PROJECT, DEMO_REQUIREMENTS, DEMO_TEST_CASES, DEMO_TEST_RUNS, DEMO_BUGS, DEMO_INSIGHTS } from './data/demoData';
 
 function Workspace({ user, onLogout, onShowLanding }: { user: AuthUser; onLogout: () => void; onShowLanding: () => void }) {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   // Entities state
-  const [projects, setProjects] = useState<Project[]>([DEMO_PROJECT]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(DEMO_PROJECT.id);
-  const [requirements, setRequirements] = useState<Requirement[]>(DEMO_REQUIREMENTS);
-  const [testCases, setTestCases] = useState<TestCase[]>(DEMO_TEST_CASES);
-  const [testRuns, setTestRuns] = useState<TestRun[]>(DEMO_TEST_RUNS);
-  const [bugs, setBugs] = useState<Bug[]>(DEMO_BUGS);
-  const [insights, setInsights] = useState<QAInsight[]>(DEMO_INSIGHTS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [testRuns, setTestRuns] = useState<TestRun[]>([]);
+  const [bugs, setBugs] = useState<Bug[]>([]);
+  const [insights, setInsights] = useState<QAInsight[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Sub-views & Modals
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -48,7 +48,9 @@ function Workspace({ user, onLogout, onShowLanding }: { user: AuthUser; onLogout
   const [isLoading, setIsLoading] = useState(true);
 
   // Selected project object
-  const activeProject = projects.find(p => p.id === selectedProjectId) || projects[0] || DEMO_PROJECT;
+  const activeProject: Project = projects.find(p => p.id === selectedProjectId) || projects[0] || {
+    id: '', name: 'No project', description: '', type: 'Custom', techStack: [], createdAt: '', updatedAt: '',
+  };
 
   // Filtered entities for active project
   const projectRequirements = requirements.filter(r => r.projectId === activeProject.id);
@@ -59,22 +61,23 @@ function Workspace({ user, onLogout, onShowLanding }: { user: AuthUser; onLogout
 
   // Initial load from backend API
   const loadData = async () => {
+    setLoadError(null);
     try {
       const health = await api.getEngine();
       setHasGeminiKey(health.hasGeminiKey);
 
       const projs = await api.getProjects();
-      if (projs && projs.length > 0) {
-        setProjects(projs);
-        const all = await Promise.all(projs.map(p => api.getProjectDetails(p.id)));
-        setRequirements(all.flatMap(d => d.requirements || []));
-        setTestCases(all.flatMap(d => d.testCases || []));
-        setTestRuns(all.flatMap(d => d.testRuns || []));
-        setBugs(all.flatMap(d => d.bugs || []));
-        setInsights(all.flatMap(d => d.insights || []));
-      }
-    } catch (err) {
-      console.warn('API connection check failed, using local demo data fallback:', err);
+      setProjects(projs);
+      setSelectedProjectId(prev => (projs.some(p => p.id === prev) ? prev : projs[0]?.id ?? ''));
+      const all = await Promise.all(projs.map(p => api.getProjectDetails(p.id)));
+      setRequirements(all.flatMap(d => d.requirements || []));
+      setTestCases(all.flatMap(d => d.testCases || []));
+      setTestRuns(all.flatMap(d => d.testRuns || []));
+      setBugs(all.flatMap(d => d.bugs || []));
+      setInsights(all.flatMap(d => d.insights || []));
+    } catch (err: any) {
+      // A 401 is handled globally (back to sign-in). Anything else is a real failure: say so, never show fake data.
+      setLoadError(err?.message || 'Could not load your workspace');
     } finally {
       setIsLoading(false);
     }
@@ -247,6 +250,26 @@ function Workspace({ user, onLogout, onShowLanding }: { user: AuthUser; onLogout
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-[1560px] w-full mx-auto p-4 sm:p-6 lg:p-7">
+        {loadError ? (
+          <div role="alert" className="max-w-lg mx-auto mt-16 craft-card rounded-lg p-6 space-y-3 text-center">
+            <h2 className="text-base font-semibold text-white">Couldn't load your workspace</h2>
+            <p className="text-xs text-neutral-300">{loadError}</p>
+            <button onClick={() => { setIsLoading(true); loadData(); }} className="px-3 py-1.5 text-xs font-semibold text-neutral-950 bg-neutral-100 hover:bg-white rounded-md">Try again</button>
+          </div>
+        ) : isLoading ? (
+          <div role="status" className="text-center text-sm text-neutral-300 mt-16">Loading workspace…</div>
+        ) : projects.length === 0 && currentTab !== 'settings' ? (
+          <div className="max-w-lg mx-auto mt-16 craft-card rounded-lg p-6 space-y-3 text-center">
+            <h2 className="text-base font-semibold text-white">No projects yet</h2>
+            <p className="text-xs text-neutral-300">
+              {user.role === 'admin'
+                ? 'Create your first project to start designing and running tests.'
+                : 'You have not been added to a project yet. Create your own, or ask a project owner to add you.'}
+            </p>
+            <button onClick={() => setIsNewProjectOpen(true)} className="px-3 py-1.5 text-xs font-semibold text-neutral-950 bg-neutral-100 hover:bg-white rounded-md">Create a project</button>
+          </div>
+        ) : (
+          <>
         {currentTab === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -377,6 +400,7 @@ function Workspace({ user, onLogout, onShowLanding }: { user: AuthUser; onLogout
           <SettingsView
             hasGeminiKey={hasGeminiKey}
             user={user}
+            project={activeProject}
             onDataReset={handleResetData}
             stats={{
               projectsCount: projects.length,
@@ -385,6 +409,8 @@ function Workspace({ user, onLogout, onShowLanding }: { user: AuthUser; onLogout
               bugsCount: bugs.length,
             }}
           />
+        )}
+          </>
         )}
       </main>
 
@@ -429,9 +455,12 @@ function Workspace({ user, onLogout, onShowLanding }: { user: AuthUser; onLogout
 }
 
 export default function App() {
+  const hasResetParam = () => new URLSearchParams(window.location.search).has('reset');
   const [showLanding, setShowLanding] = useState<boolean>(() => {
+    if (hasResetParam()) return false;
     try { return !localStorage.getItem('qalab_has_visited'); } catch { return false; }
   });
+  const [resetPending, setResetPending] = useState<boolean>(hasResetParam);
   const [phase, setPhase] = useState<'loading' | 'anon' | 'ready'>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [auth, setAuth] = useState<{ needsSetup: boolean; signupOpen: boolean }>({ needsSetup: false, signupOpen: false });
@@ -472,14 +501,14 @@ export default function App() {
     return <div className="min-h-screen flex items-center justify-center text-sm text-neutral-300" role="status">Loading…</div>;
   }
 
-  if (phase === 'anon' || !user) {
+  if (resetPending || phase === 'anon' || !user) {
     return (
       <AuthScreen
         needsSetup={auth.needsSetup}
         signupOpen={auth.signupOpen}
         bootError={bootError}
         onRetry={refresh}
-        onAuthenticated={(u) => { setUser(u); setPhase('ready'); }}
+        onAuthenticated={(u) => { setResetPending(false); setUser(u); setPhase('ready'); }}
       />
     );
   }

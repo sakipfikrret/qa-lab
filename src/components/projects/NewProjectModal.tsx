@@ -126,8 +126,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-neutral-300 mb-1">Tech Stack (comma-separated)</label>
-              <input
+              <label htmlFor="newprojectmodal-f1" className="block text-xs font-semibold text-neutral-300 mb-1">Tech Stack (comma-separated)</label>
+              <input id="newprojectmodal-f1"
                 type="text"
                 value={techStackInput}
                 onChange={(e) => setTechStackInput(e.target.value)}
@@ -138,8 +138,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-neutral-300 mb-1">Scope Description</label>
-            <input
+            <label htmlFor="newprojectmodal-f2" className="block text-xs font-semibold text-neutral-300 mb-1">Scope Description</label>
+            <input id="newprojectmodal-f2"
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -151,8 +151,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           {/* URLs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-neutral-300 mb-1">Target Staging URL (optional)</label>
-              <input
+              <label htmlFor="newprojectmodal-f3" className="block text-xs font-semibold text-neutral-300 mb-1">Target Staging URL (optional)</label>
+              <input id="newprojectmodal-f3"
                 type="url"
                 value={targetUrl}
                 onChange={(e) => setTargetUrl(e.target.value)}
@@ -161,8 +161,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-neutral-300 mb-1">Repository URL (optional)</label>
-              <input
+              <label htmlFor="newprojectmodal-f4" className="block text-xs font-semibold text-neutral-300 mb-1">Repository URL (optional)</label>
+              <input id="newprojectmodal-f4"
                 type="url"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}

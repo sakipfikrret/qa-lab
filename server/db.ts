@@ -35,6 +35,17 @@ export class Store {
         role TEXT NOT NULL CHECK (role IN ('admin','member')),
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS project_members (
+        project_id TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+        PRIMARY KEY (project_id, user_id)
+      );
+      CREATE TABLE IF NOT EXISTS password_resets (
+        token_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -98,5 +109,14 @@ export class Store {
     }
   }
 
-  close() { this.db.close(); }
+  /** Consistent online snapshot of the whole database (users, sessions and data) into `dest`. */
+  backupTo(dest: string): void {
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    this.db.prepare('VACUUM INTO ?').run(dest);
+  }
+
+  close() {
+    try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* already closed */ }
+    this.db.close();
+  }
 }

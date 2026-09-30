@@ -129,3 +129,65 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   next();
 }
+
+/* ---------- password management ---------- */
+const RESET_MINUTES = 60;
+
+export function findUserById(store: Store, id: string): (PublicUser & { passwordHash: string }) | null {
+  const r = store.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+  return r ? { ...toPublic(r), passwordHash: r.password_hash } : null;
+}
+
+export function countAdmins(store: Store): number {
+  return (store.db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get() as { n: number }).n;
+}
+
+export function validateNewPassword(password: unknown): string | null {
+  if (typeof password !== 'string' || password.length < 10) return 'Password must be at least 10 characters';
+  if (password.length > 200) return 'Password is too long';
+  return null;
+}
+
+/** Sets a new password and revokes every existing session of that user. */
+export function setPassword(store: Store, userId: string, newPassword: string) {
+  store.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), userId);
+  store.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  store.db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
+}
+
+/** One-time reset token (valid 60 min). Only its hash is stored. */
+export function createResetToken(store: Store, userId: string): { token: string; expiresAt: number } {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + RESET_MINUTES * 60_000;
+  store.db.prepare('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').run(userId, Date.now());
+  store.db.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?,?,?)').run(sha256(token), userId, expiresAt);
+  return { token, expiresAt };
+}
+
+export function consumeResetToken(store: Store, token: string, newPassword: string): PublicUser | null {
+  const row = store.db.prepare('SELECT user_id FROM password_resets WHERE token_hash = ? AND expires_at > ?').get(sha256(token), Date.now()) as any;
+  if (!row) return null;
+  setPassword(store, row.user_id, newPassword);
+  const u = findUserById(store, row.user_id);
+  if (!u) return null;
+  const { passwordHash, ...pub } = u;
+  return pub;
+}
+
+export type UserChangeResult = 'ok' | 'not_found' | 'last_admin';
+
+export function changeUserRole(store: Store, userId: string, role: Role): UserChangeResult {
+  const u = findUserById(store, userId);
+  if (!u) return 'not_found';
+  if (u.role === 'admin' && role !== 'admin' && countAdmins(store) <= 1) return 'last_admin';
+  store.db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+  return 'ok';
+}
+
+export function deleteUser(store: Store, userId: string): UserChangeResult {
+  const u = findUserById(store, userId);
+  if (!u) return 'not_found';
+  if (u.role === 'admin' && countAdmins(store) <= 1) return 'last_admin';
+  store.db.prepare('DELETE FROM users WHERE id = ?').run(userId); // sessions, resets, memberships cascade
+  return 'ok';
+}

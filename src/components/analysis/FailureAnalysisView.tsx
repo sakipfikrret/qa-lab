@@ -72,9 +72,9 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
         setAnalysis(res.analysis);
         currentItem.result.aiAnalysis = res.analysis;
         if (res.isRealAI) {
-          setStatusMessage('Forensic triage completed via Gemini.');
+          setStatusMessage('Triage completed with Gemini.');
         } else {
-          setStatusMessage('Forensic triage generated via deterministic QA baseline engine.');
+          setStatusMessage('AI is not configured: this is a generic placeholder, not an analysis of your evidence.');
         }
       }
     } catch (err: any) {
@@ -232,7 +232,7 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Gemini Forensic Analysis */}
+        {/* Right Column: AI Failure Analysis */}
         <div className="space-y-4">
           <div className="craft-card rounded-lg p-5 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
@@ -356,7 +356,7 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
                 {/* Create Bug Report CTA */}
                 <div className="pt-4 border-t border-white/[0.08] flex items-center justify-between">
                   <span className="text-xs text-neutral-300">
-                    Convert forensic diagnosis into an engineering defect ticket
+                    Turn this diagnosis into a defect ticket
                   </span>
 
                   <button

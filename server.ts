@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { nextSeq } from './src/lib/ids';
@@ -10,7 +11,9 @@ import {
   COOKIE_NAME, PublicUser, countUsers, createSession, createUser, destroySession, findUserByEmail, listUsers,
   makeLimiter, readCookie, requireAdmin, sameOriginGuard, setSessionCookie, clearSessionCookie,
   userFromToken, validateCredentials, verifyPassword,
+  changeUserRole, consumeResetToken, createResetToken, deleteUser, findUserById, setPassword, validateNewPassword,
 } from './server/auth';
+import { PROJECT_ROLES, ProjectRole, can, filterReadable, listMembers, removeMember, roleFor, setMember } from './server/access';
 import { 
   Project, Requirement, TestCase, TestRun, Bug, QAInsight, TestResult, Evidence, AIFailureAnalysis
 } from './src/types/qa';
@@ -27,14 +30,29 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.disable('x-powered-by');
+if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : process.env.TRUST_PROXY);
 app.use(express.json({ limit: '1mb' }));
 app.use(sameOriginGuard);
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'same-origin');
+  if (IS_PROD) {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'");
+    if (process.env.COOKIE_SECURE === 'true' || req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  }
   next();
 });
+if (process.env.NODE_ENV !== 'test') {
+  app.use('/api', (req, res, next) => {
+    const t0 = Date.now();
+    res.on('finish', () => {
+      if (req.path === '/health') return;
+      console.log(`${new Date().toISOString()} ${req.method} ${req.originalUrl.split('?')[0]} ${res.statusCode} ${Date.now() - t0}ms${req.user ? ` user=${req.user.id}` : ''}`);
+    });
+    next();
+  });
+}
 
 // Initialize Gemini SDK on server only
 const apiKey = process.env.GEMINI_API_KEY;
@@ -157,11 +175,12 @@ async function callGemini(contents: string, config?: any): Promise<string | null
   contents = `${UNTRUSTED_NOTE}\n\n${contents}`;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents,
-        config,
-      });
+      const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || 45_000;
+      let timer: NodeJS.Timeout | undefined;
+      const response: any = await Promise.race([
+        ai.models.generateContent({ model: GEMINI_MODEL, contents, config }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`Gemini timed out after ${timeoutMs}ms`)), timeoutMs); }),
+      ]).finally(() => clearTimeout(timer));
       return response.text || null;
     } catch (err: any) {
       console.warn(`Gemini call attempt ${attempt} warning:`, err?.message || err);
@@ -180,6 +199,24 @@ const AI_PATHS = ['/api/requirements/analyze', '/api/requirements/risks', '/api/
 const LOCAL_USER: PublicUser = { id: 'local', email: 'local@localhost', name: 'Local user', role: 'admin', createdAt: new Date(0).toISOString() };
 const cookieSecure = () => IS_PROD || process.env.COOKIE_SECURE === 'true';
 const actor = (req: express.Request) => req.user?.name || 'Unknown';
+const resetLimiter = makeLimiter(10, 15 * 60_000);
+
+/** Replies 404 when the user cannot see the project, 403 when they can see it but lack `need`. */
+function guard(req: express.Request, res: express.Response, projectId: string | undefined, need: ProjectRole): boolean {
+  if (projectId && projects.some(p => p.id === projectId)) {
+    if (can(store, req.user, projectId, need)) return true;
+    if (need !== 'viewer' && can(store, req.user, projectId, 'viewer')) {
+      res.status(403).json({ error: `You need ${need} access on this project` });
+      return false;
+    }
+  }
+  res.status(404).json({ error: 'Project not found' });
+  return false;
+}
+/** Project to use when the client omitted one: the first project this user may write to. */
+function defaultProjectId(req: express.Request): string | undefined {
+  return projects.find(p => can(store, req.user, p.id, 'editor'))?.id;
+}
 
 app.get('/api/auth/status', (req, res) => {
   const user = AUTH_DISABLED ? LOCAL_USER : userFromToken(store, readCookie(req, COOKIE_NAME));
@@ -224,6 +261,17 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/auth/reset', (req, res) => {
+  const { token, password } = req.body || {};
+  if (!resetLimiter(String(req.ip))) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+  const bad = validateNewPassword(password);
+  if (bad) return res.status(400).json({ error: bad });
+  const user = typeof token === 'string' ? consumeResetToken(store, token, password) : null;
+  if (!user) return res.status(400).json({ error: 'This reset link is invalid or has expired' });
+  setSessionCookie(res, createSession(store, user.id), cookieSecure());
+  res.json({ user });
+});
+
 // Everything below /api (except health) requires a session.
 app.use('/api', (req, res, next) => {
   if (req.path === '/health') return next();
@@ -235,7 +283,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.get('/api/users', (req, res) => res.json(listUsers(store)));
+app.get('/api/users', requireAdmin, (req, res) => res.json(listUsers(store)));
 app.post('/api/users', requireAdmin, (req, res) => {
   const { email, password, name, role } = req.body || {};
   const bad = validateCredentials(email, password, name);
@@ -244,9 +292,58 @@ app.post('/api/users', requireAdmin, (req, res) => {
   res.status(201).json(createUser(store, { email, name, password, role: role === 'admin' ? 'admin' : 'member' }));
 });
 
-// API Routes
+app.patch('/api/users/:id', requireAdmin, (req, res) => {
+  const role = req.body?.role;
+  if (role !== 'admin' && role !== 'member') return res.status(400).json({ error: 'role must be admin or member' });
+  const r = changeUserRole(store, req.params.id, role);
+  if (r === 'not_found') return res.status(404).json({ error: 'User not found' });
+  if (r === 'last_admin') return res.status(409).json({ error: 'The workspace needs at least one admin' });
+  res.json(listUsers(store).find(u => u.id === req.params.id));
+});
 
-// Health & Status
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
+  if (req.params.id === req.user!.id) return res.status(409).json({ error: 'You cannot delete your own account' });
+  const r = deleteUser(store, req.params.id);
+  if (r === 'not_found') return res.status(404).json({ error: 'User not found' });
+  if (r === 'last_admin') return res.status(409).json({ error: 'The workspace needs at least one admin' });
+  res.json({ success: true });
+});
+
+// Admin issues a one-time link (valid 60 min); no email infrastructure needed.
+app.post('/api/users/:id/reset-link', requireAdmin, (req, res) => {
+  const u = findUserById(store, req.params.id);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  const { token, expiresAt } = createResetToken(store, u.id);
+  const origin = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  res.json({ url: `${origin}/?reset=${token}`, expiresAt: new Date(expiresAt).toISOString() });
+});
+
+app.post('/api/auth/password', (req, res) => {
+  if (AUTH_DISABLED) return res.status(400).json({ error: 'Authentication is disabled' });
+  const { currentPassword, newPassword } = req.body || {};
+  const bad = validateNewPassword(newPassword);
+  if (bad) return res.status(400).json({ error: bad });
+  const me = findUserById(store, req.user!.id);
+  if (!me || typeof currentPassword !== 'string' || !verifyPassword(currentPassword, me.passwordHash)) {
+    return res.status(403).json({ error: 'Current password is incorrect' });
+  }
+  setPassword(store, me.id, newPassword); // revokes all sessions, including this one...
+  setSessionCookie(res, createSession(store, me.id), cookieSecure()); // ...so issue a fresh one
+  res.json({ success: true });
+});
+
+// Consistent snapshot of users + data (admin only).
+app.get('/api/admin/backup', requireAdmin, (req, res) => {
+  const tmp = path.join(os.tmpdir(), `qalab-backup-${Date.now()}.db`);
+  try {
+    store.backupTo(tmp);
+    res.download(tmp, `qalab-backup-${new Date().toISOString().slice(0, 10)}.db`, () => fs.rm(tmp, () => {}));
+  } catch (err) {
+    console.error('Backup failed:', err);
+    res.status(500).json({ error: 'Backup failed' });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
@@ -266,7 +363,8 @@ app.get('/api/engine', (req, res) => {
 
 // Projects
 app.get('/api/projects', (req, res) => {
-  res.json(projects);
+  res.json(filterReadable(store, req.user, projects.map(p => ({ ...p, projectId: p.id })))
+    .map(({ projectId, ...p }) => ({ ...p, myRole: roleFor(store, req.user, p.id) })));
 });
 
 app.post('/api/projects', (req, res) => {
@@ -290,13 +388,14 @@ app.post('/api/projects', (req, res) => {
   };
 
   projects.unshift(newProject);
+  if (req.user!.id !== 'local') setMember(store, newProject.id, req.user!.id, 'owner');
   persistDataToDisk();
-  res.status(201).json(newProject);
+  res.status(201).json({ ...newProject, myRole: 'owner' });
 });
 
 app.get('/api/projects/:id', (req, res) => {
-  const project = projects.find(p => p.id === req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!guard(req, res, req.params.id, 'viewer')) return;
+  const project = projects.find(p => p.id === req.params.id)!;
 
   const projRequirements = requirements.filter(r => r.projectId === project.id);
   const projTestCases = testCases.filter(t => t.projectId === project.id);
@@ -311,22 +410,46 @@ app.get('/api/projects/:id', (req, res) => {
     testRuns: projRuns,
     bugs: projBugs,
     insights: projInsights,
+    myRole: roleFor(store, req.user, project.id),
   });
+});
+
+// Project members (owners manage them; admins are implicit owners)
+app.get('/api/projects/:id/members', (req, res) => {
+  if (!guard(req, res, req.params.id, 'viewer')) return;
+  res.json(listMembers(store, req.params.id));
+});
+app.put('/api/projects/:id/members', (req, res) => {
+  if (!guard(req, res, req.params.id, 'owner')) return;
+  const { email, role } = req.body || {};
+  if (!PROJECT_ROLES.includes(role)) return res.status(400).json({ error: 'role must be owner, editor or viewer' });
+  const u = typeof email === 'string' ? findUserByEmail(store, email) : null;
+  if (!u) return res.status(404).json({ error: 'No user with that email. An admin must create the account first.' });
+  setMember(store, req.params.id, u.id, role);
+  res.json(listMembers(store, req.params.id));
+});
+app.delete('/api/projects/:id/members/:userId', (req, res) => {
+  if (!guard(req, res, req.params.id, 'owner')) return;
+  removeMember(store, req.params.id, req.params.userId);
+  res.json(listMembers(store, req.params.id));
 });
 
 // Requirements
 app.get('/api/requirements', (req, res) => {
   const { projectId } = req.query;
-  const list = projectId ? requirements.filter(r => r.projectId === projectId) : requirements;
+  if (projectId && !guard(req, res, String(projectId), 'viewer')) return;
+  const list = projectId ? requirements.filter(r => r.projectId === projectId) : filterReadable(store, req.user, requirements);
   res.json(list);
 });
 
 app.post('/api/requirements', (req, res) => {
   const { projectId, title, content, type, priority, code } = req.body;
   if (!str(title, 200) || !str(content)) return res.status(400).json({ error: 'title and content are required' });
+  const pid = projectId || defaultProjectId(req);
+  if (!guard(req, res, pid, 'editor')) return;
   const newReq: Requirement = {
-    id: `req-${Date.now()}`,
-    projectId: projectId || projects[0]?.id || 'proj-demo-01',
+    id: `req-${Date.now()}-${Math.floor(Math.random() * 1e4)}`,
+    projectId: pid!,
     code: code || nextSeq('REQ', requirements.map(r => r.code)),
     title: str(title, 200),
     content: str(content),
@@ -347,6 +470,7 @@ app.post('/api/requirements/analyze', async (req, res) => {
     return res.status(400).json({ error: 'Requirement text is required' });
   }
   if (rawText.length > 20000) return res.status(413).json({ error: 'Requirement text is too long (max 20,000 characters)' });
+  if (projectId && !guard(req, res, projectId, 'editor')) return;
 
   const prompt = `You are a Principal QA Architect and Quality Engineering expert.
 Analyze the following natural-language software requirements for project "${projectName || 'Software App'}" (Tech stack: ${(techStack || []).join(', ') || 'Modern Full-Stack'}).
@@ -474,7 +598,7 @@ Return ONLY a valid JSON object matching this schema:
     isRealAI: false,
     requirements: [fallbackReq],
     insights: [],
-    warning: apiKey ? 'AI response parsing failed, used deterministic parser' : 'GEMINI_API_KEY not configured. Running in simulated mode.',
+    warning: apiKey ? 'The AI response could not be parsed: your text was saved as a single requirement without analysis.' : 'AI is not configured (no GEMINI_API_KEY): your text was saved as a single requirement without analysis.',
   });
 });
 
@@ -482,6 +606,7 @@ Return ONLY a valid JSON object matching this schema:
 app.post('/api/requirements/risks', async (req, res) => {
   const { requirementsText, projectId } = req.body;
   if (typeof requirementsText !== 'string' || !requirementsText.trim()) return res.status(400).json({ error: 'requirementsText is required' });
+  if (projectId && !guard(req, res, projectId, 'editor')) return;
 
   const prompt = `You are a Principal Software Quality Engineer.
 Analyze the following specification text for hidden risks, ambiguity, missing acceptance criteria, security oversights, and state inconsistencies.
@@ -521,6 +646,7 @@ app.post('/api/test-cases/generate', async (req, res) => {
   const { projectId, requirementId, requirementText, projectContext, testFocus } = req.body;
   if (typeof requirementText !== 'string' || !requirementText.trim()) return res.status(400).json({ error: 'requirementText is required' });
   if (requirementText.length > 20000) return res.status(413).json({ error: 'requirementText is too long (max 20,000 characters)' });
+  if (projectId && !guard(req, res, projectId, 'editor')) return;
   
   const prompt = `You are a Senior Test Engineer designing a comprehensive test suite.
 Given the following requirement and context, generate high-quality, structured test cases.
@@ -655,7 +781,7 @@ Return ONLY a valid JSON array of test case objects conforming to this schema:
     success: true,
     isRealAI: false,
     testCases: [fallbackCase],
-    warning: apiKey ? 'AI parsing error, created heuristic test case' : 'GEMINI_API_KEY not configured. Running in simulated mode.',
+    warning: apiKey ? 'AI parsing error, created heuristic test case' : 'AI is not configured (no GEMINI_API_KEY): your text was saved as a single requirement without analysis.',
   });
 });
 
@@ -733,8 +859,8 @@ Return ONLY a valid JSON object matching the test case schema with enhanced step
 // Test Cases CRUD
 app.get('/api/test-cases', (req, res) => {
   const { projectId, requirementId, status, type } = req.query;
-  let list = testCases;
-  if (projectId) list = list.filter(t => t.projectId === projectId);
+  if (projectId && !guard(req, res, String(projectId), 'viewer')) return;
+  let list = projectId ? testCases.filter(t => t.projectId === projectId) : filterReadable(store, req.user, testCases);
   if (requirementId) list = list.filter(t => t.requirementId === requirementId);
   if (status) list = list.filter(t => t.status === status);
   if (type) list = list.filter(t => t.type === type);
@@ -746,13 +872,15 @@ app.post('/api/test-cases', (req, res) => {
   if (!str(tc.title, 300) || !Array.isArray(tc.steps) || tc.steps.length === 0) {
     return res.status(400).json({ error: 'title and at least one step are required' });
   }
+  const pid = str(tc.projectId, 100) || defaultProjectId(req);
+  if (!guard(req, res, pid, 'editor')) return;
   const newCase: TestCase = {
     ...tc,
     title: str(tc.title, 300),
     priority: pick(tc.priority, PRIORITIES, 'Medium'),
     type: pick(tc.type, TEST_TYPES, 'Functional'),
     status: pick(tc.status, TC_STATUSES, 'Draft'),
-    projectId: str(tc.projectId, 100) || projects[0]?.id || 'proj-demo-01',
+    projectId: pid!,
     id: `tc-${Date.now()}-${Math.floor(Math.random() * 1e4)}`,
     code: nextSeq('TC', testCases.map(t => t.code)),
     createdAt: new Date().toISOString(),
@@ -766,6 +894,7 @@ app.post('/api/test-cases', (req, res) => {
 app.put('/api/test-cases/:id', (req, res) => {
   const idx = testCases.findIndex(t => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Test case not found' });
+  if (!guard(req, res, testCases[idx].projectId, 'editor')) return;
   const patch: Record<string, unknown> = {};
   for (const k of TC_EDITABLE) if (k in (req.body || {})) patch[k] = req.body[k];
   if ('priority' in patch) patch.priority = pick(patch.priority, PRIORITIES, testCases[idx].priority);
@@ -778,7 +907,9 @@ app.put('/api/test-cases/:id', (req, res) => {
 });
 
 app.delete('/api/test-cases/:id', (req, res) => {
-  if (!testCases.some(t => t.id === req.params.id)) return res.status(404).json({ error: 'Test case not found' });
+  const target = testCases.find(t => t.id === req.params.id);
+  if (!target) return res.status(404).json({ error: 'Test case not found' });
+  if (!guard(req, res, target.projectId, 'editor')) return;
   testCases = testCases.filter(t => t.id !== req.params.id);
   persistDataToDisk();
   res.json({ success: true });
@@ -787,21 +918,26 @@ app.delete('/api/test-cases/:id', (req, res) => {
 // Test Runs & Execution
 app.get('/api/test-runs', (req, res) => {
   const { projectId } = req.query;
-  const list = projectId ? testRuns.filter(r => r.projectId === projectId) : testRuns;
+  if (projectId && !guard(req, res, String(projectId), 'viewer')) return;
+  const list = projectId ? testRuns.filter(r => r.projectId === projectId) : filterReadable(store, req.user, testRuns);
   res.json(list);
 });
 
 app.get('/api/test-runs/:id', (req, res) => {
   const run = testRuns.find(r => r.id === req.params.id);
-  if (!run) return res.status(404).json({ error: 'Test run not found' });
+  if (!run || !can(store, req.user, run.projectId, 'viewer')) return res.status(404).json({ error: 'Test run not found' });
   res.json(run);
 });
 
 app.post('/api/test-runs', (req, res) => {
-  const { projectId, name, environment, testCaseIds } = req.body;
-  const runTestCases = testCaseIds && testCaseIds.length > 0 
-    ? testCaseIds 
-    : testCases.filter(t => !projectId || t.projectId === projectId).map(t => t.id);
+  const { name, environment, testCaseIds } = req.body;
+  const projectId = req.body.projectId || defaultProjectId(req);
+  if (!guard(req, res, projectId, 'editor')) return;
+  const inProject = testCases.filter(t => t.projectId === projectId);
+  const runTestCases: string[] = Array.isArray(testCaseIds) && testCaseIds.length > 0
+    ? testCaseIds.filter((id: unknown) => inProject.some(t => t.id === id))
+    : inProject.map(t => t.id);
+  if (runTestCases.length === 0) return res.status(400).json({ error: 'No valid test cases for this project' });
 
   const runDbId = `run-${Date.now()}`;
   const initialResults: Record<string, TestResult> = {};
@@ -821,10 +957,10 @@ app.post('/api/test-runs', (req, res) => {
 
   const newRun: TestRun = {
     id: runDbId,
-    runId: `RUN-${new Date().toISOString().slice(0, 10)}-${Math.floor(10 + Math.random() * 90)}`,
-    projectId: projectId || projects[0]?.id || 'proj-demo-01',
-    name: name || `Test Execution Run #${testRuns.length + 1}`,
-    environment: environment || 'Staging',
+    runId: nextSeq(`RUN-${new Date().toISOString().slice(0, 10)}`, testRuns.map(r => r.runId)),
+    projectId,
+    name: str(name, 200) || `Test Execution Run #${testRuns.length + 1}`,
+    environment: pick(environment, ['Local', 'Preview', 'Production', 'Staging'] as const, 'Staging'),
     startTime: new Date().toISOString(),
     status: 'In Progress',
     testCaseIds: runTestCases,
@@ -848,10 +984,19 @@ app.post('/api/test-runs', (req, res) => {
 // Update test execution result (step statuses, failure evidence, notes)
 app.post('/api/test-runs/:id/results', (req, res) => {
   const run = testRuns.find(r => r.id === req.params.id);
-  if (!run) return res.status(404).json({ error: 'Test run not found' });
+  if (!run || !can(store, req.user, run.projectId, 'viewer')) return res.status(404).json({ error: 'Test run not found' });
+  if (!guard(req, res, run.projectId, 'editor')) return;
 
-  const { testCaseId, status, stepResults, actualResult, errorMessage, notes, evidenceList } = req.body;
-  if (!testCaseId || !status) return res.status(400).json({ error: 'testCaseId and status are required' });
+  const { testCaseId, stepResults, actualResult, errorMessage, notes, evidenceList } = req.body;
+  if (typeof testCaseId !== 'string' || !run.testCaseIds.includes(testCaseId)) return res.status(400).json({ error: 'testCaseId is not part of this run' });
+  const RESULT_STATUSES = ['Passed', 'Failed', 'Blocked', 'Skipped', 'Not Executed'] as const;
+  if (!RESULT_STATUSES.includes(req.body.status)) return res.status(400).json({ error: `status must be one of ${RESULT_STATUSES.join(', ')}` });
+  const status = req.body.status as TestResult['status'];
+  if (stepResults !== undefined) {
+    const okStep = (s: any) => s && Number.isInteger(s.stepNumber) && ['PENDING', 'PASS', 'FAIL', 'BLOCKED'].includes(s.status);
+    if (!Array.isArray(stepResults) || stepResults.length > 500 || !stepResults.every(okStep)) return res.status(400).json({ error: 'stepResults is malformed' });
+  }
+  if (evidenceList !== undefined && (!Array.isArray(evidenceList) || evidenceList.length > 50)) return res.status(400).json({ error: 'evidenceList must be an array of at most 50 items' });
 
   const existing = run.results[testCaseId] || {
     id: `res-${Date.now()}-${testCaseId}`,
@@ -991,16 +1136,17 @@ Analyze the failure and return ONLY a valid JSON object matching this schema:
   const fallbackAnalysis: AIFailureAnalysis = {
     id: `ana-${Date.now()}`,
     failureSummary: `Assertion mismatch: Expected "${testCase.expectedResult.slice(0, 60)}..." but observed "${actualResult.slice(0, 60)}..."`,
-    probableCause: errorMessage ? `Unhandled exception: ${errorMessage}` : 'State synchronization or backend validation discrepancy.',
-    evidenceSupported: errorMessage ? [`Error payload: ${errorMessage}`] : ['Observed actual result variance.'],
-    confidence: errorMessage ? 'Medium' : 'Low',
+    probableCause: 'Not determined: AI is not configured, so no root-cause analysis was performed.',
+    evidenceSupported: errorMessage ? [`Error message you supplied: ${errorMessage}`] : [],
+    confidence: 'Low',
     suggestedInvestigation: [
-      '1. Verify API endpoint status code and response payload against schema',
-      '2. Inspect server error logs around time of execution',
-      '3. Re-run test in isolated environment with database state reset'
+      'Generic checklist (not derived from your evidence):',
+      'Compare the API status code and payload with the expected result',
+      'Check server logs around the time of execution',
+      'Re-run the test in a clean environment'
     ],
-    regressionRisk: 'Potential regression in related user workflows.',
-    recommendedFixDirection: 'Add validation error handlers and ensure client handles 4xx/5xx responses cleanly.',
+    regressionRisk: 'Not assessed',
+    recommendedFixDirection: 'Not assessed without AI',
     analyzedAt: new Date().toISOString(),
     isRealAI: false,
   };
@@ -1013,6 +1159,10 @@ app.post('/api/bugs/generate', async (req, res) => {
   const { testCase, testResult, analysis, projectId, testRunId } = req.body;
   if (!testCase || !testResult) {
     return res.status(400).json({ error: 'testCase and testResult are required' });
+  }
+  if (projectId && !guard(req, res, projectId, 'editor')) return;
+  if (testRunId && testRuns.find(r => r.id === testRunId && projectId && r.projectId !== projectId)) {
+    return res.status(400).json({ error: 'testRunId does not belong to this project' });
   }
 
   const prompt = `You are a Principal QA Engineer generating a formal production bug report.
@@ -1142,8 +1292,8 @@ Return ONLY a valid JSON object matching:
 // Bugs List & Management
 app.get('/api/bugs', (req, res) => {
   const { projectId, severity, status } = req.query;
-  let list = bugs;
-  if (projectId) list = list.filter(b => b.projectId === projectId);
+  if (projectId && !guard(req, res, String(projectId), 'viewer')) return;
+  let list = projectId ? bugs.filter(b => b.projectId === projectId) : filterReadable(store, req.user, bugs);
   if (severity) list = list.filter(b => b.severity === severity);
   if (status) list = list.filter(b => b.status === status);
   res.json(list);
@@ -1152,9 +1302,11 @@ app.get('/api/bugs', (req, res) => {
 app.post('/api/bugs', (req, res) => {
   const b = req.body || {};
   if (!str(b.title, 300)) return res.status(400).json({ error: 'title is required' });
+  const pid = str(b.projectId, 100) || defaultProjectId(req);
+  if (!guard(req, res, pid, 'editor')) return;
   const newBug: Bug = {
     title: str(b.title, 300),
-    projectId: str(b.projectId, 100) || projects[0]?.id || 'proj-demo-01',
+    projectId: pid!,
     testRunId: b.testRunId, testResultId: b.testResultId, testCaseId: b.testCaseId,
     severity: pick(b.severity, BUG_SEVERITIES, 'Major'),
     priority: pick(b.priority, PRIORITIES, 'Medium'),
@@ -1185,6 +1337,7 @@ app.post('/api/bugs', (req, res) => {
 app.put('/api/bugs/:id', (req, res) => {
   const idx = bugs.findIndex(b => b.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Bug not found' });
+  if (!guard(req, res, bugs[idx].projectId, 'editor')) return;
 
   const existing = bugs[idx];
   const { status, assignedTo, note } = req.body;
@@ -1229,12 +1382,14 @@ app.post('/api/copilot', async (req, res) => {
   const { message, projectId, conversationHistory } = req.body;
   if (!message) return res.status(400).json({ error: 'Message is required' });
 
-  const proj = projects.find(p => p.id === projectId) || projects[0];
-  const projReqs = requirements.filter(r => !projectId || r.projectId === projectId);
-  const projCases = testCases.filter(t => !projectId || t.projectId === projectId);
-  const projRuns = testRuns.filter(r => !projectId || r.projectId === projectId);
-  const projBugs = bugs.filter(b => !projectId || b.projectId === projectId);
-  const projInsights = insights.filter(i => !projectId || i.projectId === projectId);
+  const pid = projectId || projects.find(p => can(store, req.user, p.id, 'viewer'))?.id;
+  if (!guard(req, res, pid, 'viewer')) return;
+  const proj = projects.find(p => p.id === pid)!;
+  const projReqs = requirements.filter(r => r.projectId === pid);
+  const projCases = testCases.filter(t => t.projectId === pid);
+  const projRuns = testRuns.filter(r => r.projectId === pid);
+  const projBugs = bugs.filter(b => b.projectId === pid);
+  const projInsights = insights.filter(i => i.projectId === pid);
 
   const contextData = {
     project: proj ? { name: proj.name, type: proj.type, techStack: proj.techStack } : null,
@@ -1302,6 +1457,16 @@ app.post('/api/reset-demo', requireAdmin, (req, res) => {
 });
 
 // Setup Vite or Static Serving
+// Unknown API routes and errors always answer with JSON (never an HTML stack page).
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(err);
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Request body too large' });
+  if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) return res.status(400).json({ error: 'Malformed JSON body' });
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(__dirname, 'dist')));
@@ -1321,11 +1486,19 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`QA//LAB server running at http://0.0.0.0:${PORT}`);
     console.log(`Gemini API Key status: ${apiKey ? 'Configured (Active)' : 'Not set (AI actions return placeholders)'}`);
     if (AUTH_DISABLED) console.warn('WARNING: AUTH_DISABLED=true — anyone who can reach this port is an admin. Local use only.');
   });
+
+  const shutdown = (sig: string) => {
+    console.log(`${sig} received, shutting down…`);
+    server.close(() => { try { persistDataToDisk(); store.close(); } finally { process.exit(0); } });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 export { app, store };

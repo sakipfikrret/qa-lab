@@ -24,7 +24,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLaunchApp }) => {
     { step: '02', title: 'AI Test Design', desc: 'Synthesize structured test cases, preconditions, boundary edge cases, and security assertions.' },
     { step: '03', title: 'Execution Runner', desc: 'Record step-by-step manual and automated executions with PASS/FAIL/BLOCKED states.' },
     { step: '04', title: 'Evidence Capture', desc: 'Attach console traces, HTTP payloads, and error logs directly to failed assertions.' },
-    { step: '05', title: 'Forensic Analysis', desc: 'Gemini analyzes observed failures vs expected behavior to infer root cause with evidence citations.' },
+    { step: '05', title: 'Failure Analysis', desc: 'Gemini analyzes observed failures vs expected behavior to infer root cause with evidence citations.' },
     { step: '06', title: 'Bug Report Generation', desc: 'Instantly generate developer-actionable bug reports with reproduction steps and fix directives.' },
   ];
 
@@ -132,7 +132,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLaunchApp }) => {
           <p className="text-center text-xs text-neutral-400">Illustration with sample data. The AI proposes a cause; you confirm it.</p>
         </section>
 
-        <div className="max-w-2xl mx-auto text-xs text-neutral-300 border border-white/[0.08] rounded-lg p-4 bg-white/[0.02]">
+        <div className="max-w-2xl mx-auto mt-6 text-xs text-neutral-300 border border-white/[0.08] rounded-lg p-4 bg-white/[0.02]">
           <span className="font-semibold text-white">Demo mode: </span>
           Without a GEMINI_API_KEY the app runs on seeded sample data and AI actions return clearly labelled placeholders, not real analysis. Sign-in is required; data is stored in a local SQLite database on the server.
         </div>
@@ -143,7 +143,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLaunchApp }) => {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-300 font-mono">
               The Quality Engineering Pipeline
             </h2>
-            <p className="text-sm font-semibold text-white">From raw requirement to production bug patch</p>
+            <p className="text-sm font-semibold text-white">From requirement to a reproducible bug report</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -191,7 +191,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLaunchApp }) => {
               <span>Built for engineers</span>
             </div>
             <p className="text-xs text-neutral-300 leading-relaxed">
-              Built with a restrained dark aesthetic inspired by Linear and Vercel. Fast keyboard navigation, monospace technical output, and strict evidence verification.
+              Keyboard-first (⌘K search), monospace technical output, and every AI claim tied to evidence you attached.
             </p>
           </div>
         </div>

@@ -240,8 +240,8 @@ export const TestCaseDetailModal: React.FC<TestCaseDetailModalProps> = ({
         {isEditing ? (
           <div className="space-y-4 text-xs">
             <div>
-              <label className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Description</label>
-              <textarea
+              <label htmlFor="testcasedetailmodal-f1" className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Description</label>
+              <textarea id="testcasedetailmodal-f1"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
@@ -251,8 +251,8 @@ export const TestCaseDetailModal: React.FC<TestCaseDetailModalProps> = ({
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Priority</label>
-                <select
+                <label htmlFor="testcasedetailmodal-f2" className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Priority</label>
+                <select id="testcasedetailmodal-f2"
                   value={priority}
                   onChange={(e) => setPriority(e.target.value as Priority)}
                   className="w-full px-2.5 py-1.5 bg-[#101217] border border-white/[0.1] rounded-md text-white"
@@ -262,8 +262,8 @@ export const TestCaseDetailModal: React.FC<TestCaseDetailModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Type</label>
-                <select
+                <label htmlFor="testcasedetailmodal-f3" className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Type</label>
+                <select id="testcasedetailmodal-f3"
                   value={type}
                   onChange={(e) => setType(e.target.value as TestType)}
                   className="w-full px-2.5 py-1.5 bg-[#101217] border border-white/[0.1] rounded-md text-white"
@@ -273,8 +273,8 @@ export const TestCaseDetailModal: React.FC<TestCaseDetailModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Risk Level</label>
-                <select
+                <label htmlFor="testcasedetailmodal-f4" className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Risk Level</label>
+                <select id="testcasedetailmodal-f4"
                   value={risk}
                   onChange={(e) => setRisk(e.target.value as any)}
                   className="w-full px-2.5 py-1.5 bg-[#101217] border border-white/[0.1] rounded-md text-white"
@@ -288,8 +288,8 @@ export const TestCaseDetailModal: React.FC<TestCaseDetailModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Expected Result</label>
-              <textarea
+              <label htmlFor="testcasedetailmodal-f5" className="block text-neutral-300 mb-1 font-mono uppercase text-[11px]">Expected Result</label>
+              <textarea id="testcasedetailmodal-f5"
                 value={expectedResult}
                 onChange={(e) => setExpectedResult(e.target.value)}
                 rows={2}

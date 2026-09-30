@@ -37,6 +37,7 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   isDemo?: boolean;
+  myRole?: 'owner' | 'editor' | 'viewer' | null;
 }
 
 export interface RequirementRisk {

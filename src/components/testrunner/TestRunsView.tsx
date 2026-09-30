@@ -199,8 +199,8 @@ export const TestRunsView: React.FC<TestRunsViewProps> = ({
 
             <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block text-neutral-300 font-semibold mb-1">Suite Name</label>
-                <input
+                <label htmlFor="testrunsview-f1" className="block text-neutral-300 font-semibold mb-1">Suite Name</label>
+                <input id="testrunsview-f1"
                   type="text"
                   value={runName}
                   onChange={(e) => setRunName(e.target.value)}
@@ -210,8 +210,8 @@ export const TestRunsView: React.FC<TestRunsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-neutral-300 font-semibold mb-1">Target Environment</label>
-                <select
+                <label htmlFor="testrunsview-f2" className="block text-neutral-300 font-semibold mb-1">Target Environment</label>
+                <select id="testrunsview-f2"
                   value={environment}
                   onChange={(e) => setEnvironment(e.target.value as any)}
                   className="w-full px-3 py-2 bg-[#101217] border border-white/[0.1] rounded-md text-white focus:outline-none focus:border-white/[0.25]"

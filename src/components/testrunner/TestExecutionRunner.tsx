@@ -387,8 +387,8 @@ export const TestExecutionRunner: React.FC<TestExecutionRunnerProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                  <label className="block text-neutral-300 mb-1 font-medium">Actual Result Observed</label>
-                  <textarea
+                  <label htmlFor="testexecutionrunner-f1" className="block text-neutral-300 mb-1 font-medium">Actual Result Observed</label>
+                  <textarea id="testexecutionrunner-f1"
                     rows={3}
                     value={actualResult}
                     onChange={(e) => setActualResult(e.target.value)}
@@ -397,8 +397,8 @@ export const TestExecutionRunner: React.FC<TestExecutionRunnerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-neutral-300 mb-1 font-medium">Error Message / Stack Trace</label>
-                  <textarea
+                  <label htmlFor="testexecutionrunner-f2" className="block text-neutral-300 mb-1 font-medium">Error Message / Stack Trace</label>
+                  <textarea id="testexecutionrunner-f2"
                     rows={3}
                     value={errorMessage}
                     onChange={(e) => setErrorMessage(e.target.value)}
@@ -436,7 +436,7 @@ export const TestExecutionRunner: React.FC<TestExecutionRunnerProps> = ({
                 </div>
               )}
 
-              {/* Forensic Analysis Trigger */}
+              {/* Failure Analysis Trigger */}
               <div className="pt-2 border-t border-rose-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <span className="text-xs text-neutral-300">
                   Ask AI to propose a root cause from the attached evidence
@@ -532,8 +532,8 @@ export const TestExecutionRunner: React.FC<TestExecutionRunnerProps> = ({
               </div>
 
               <div>
-                <label className="block text-neutral-300 mb-1 font-medium">Artifact Title</label>
-                <input
+                <label htmlFor="testexecutionrunner-f3" className="block text-neutral-300 mb-1 font-medium">Artifact Title</label>
+                <input id="testexecutionrunner-f3"
                   type="text"
                   value={evidenceTitle}
                   onChange={(e) => setEvidenceTitle(e.target.value)}
@@ -543,8 +543,8 @@ export const TestExecutionRunner: React.FC<TestExecutionRunnerProps> = ({
               </div>
 
               <div>
-                <label className="block text-neutral-300 mb-1 font-medium">Raw Payload / Output Content</label>
-                <textarea
+                <label htmlFor="testexecutionrunner-f4" className="block text-neutral-300 mb-1 font-medium">Raw Payload / Output Content</label>
+                <textarea id="testexecutionrunner-f4"
                   rows={6}
                   value={evidenceContent}
                   onChange={(e) => setEvidenceContent(e.target.value)}

@@ -14,8 +14,7 @@ import {
   Check,
   BrainCircuit,
   Command,
-  Plus
-} from 'lucide-react';
+  Plus, LogOut } from 'lucide-react';
 import { Project } from '../../types/qa';
 import type { AuthUser } from '../../services/api';
 
@@ -78,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="sticky top-0 z-40 w-full craft-header-blur">
       <div className="flex h-13 items-center justify-between px-3 sm:px-5 max-w-[1560px] mx-auto">
         {/* Left: Brandmark & Project Workspace Selector */}
-        <div className="flex items-center gap-3 sm:gap-5">
+        <div className="flex items-center gap-2 sm:gap-5 min-w-0">
           {/* Handcrafted Emblem Logo */}
           <button 
             onClick={() => onTabChange('dashboard')}
@@ -96,9 +95,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-semibold text-[13px] tracking-tight text-white group-hover:text-neutral-100 transition-colors">
                 QA//LAB
               </span>
-              <span className="text-[11px] tracking-widest uppercase text-neutral-300 font-mono font-medium">
-                PRO
-              </span>
             </div>
           </button>
 
@@ -106,13 +102,13 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Active Workspace / Project Selector */}
           {activeProject && (
-            <div className="relative" ref={dropdownRef}>
+            <div className="relative min-w-0" ref={dropdownRef}>
               <button
                 onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
                 className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-300 hover:text-white rounded-md hover:bg-white/[0.04] transition-colors border border-transparent hover:border-white/[0.08]"
               >
                 <div className="h-1.5 w-1.5 rounded-full bg-accent-400/80" />
-                <span className="font-medium max-w-[140px] truncate sm:max-w-[200px]">
+                <span className="font-medium max-w-[72px] truncate min-[420px]:max-w-[140px] sm:max-w-[200px]">
                   {activeProject.name}
                 </span>
                 <ChevronDown className="h-3 w-3 text-neutral-300" />
@@ -163,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* Navigation Items (Clean Typography with hairline active underline) */}
-          <nav className="hidden lg:flex items-center gap-0.5 ml-1">
+          <nav className="hidden xl:flex items-center gap-0.5 ml-1 whitespace-nowrap">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentTab === item.id;
@@ -186,7 +182,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right: Quick Search, Engine Status, Copilot Drawer Trigger */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Quick Search */}
           <button
             onClick={onOpenSearch}
@@ -194,7 +190,7 @@ export const Header: React.FC<HeaderProps> = ({
             title="Search specifications, test runs, and defects (⌘K)"
           >
             <Search className="h-3.5 w-3.5 text-neutral-300" />
-            <span className="hidden md:inline text-xs font-normal text-neutral-300">Search repository...</span>
+            <span className="hidden 2xl:inline text-xs font-normal text-neutral-300 whitespace-nowrap">Search…</span>
             <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white/[0.06] text-[11px] rounded text-neutral-300 font-mono border border-white/[0.06]">
               <Command className="h-2.5 w-2.5" />K
             </kbd>
@@ -202,7 +198,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Clean Engine Status Indicator */}
           <div 
-            className="hidden sm:flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-300 font-mono bg-white/[0.02] border border-white/[0.06] rounded-md"
+            className="hidden md:flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-300 font-mono bg-white/[0.02] border border-white/[0.06] rounded-md whitespace-nowrap"
             title={hasGeminiKey ? 'Gemini is configured on the server' : 'No API key: AI actions return placeholders'}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${hasGeminiKey ? 'bg-emerald-400' : 'bg-neutral-500'}`} />
@@ -212,16 +208,17 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Product Overview Toggle */}
           <button
             onClick={onToggleLanding}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-neutral-300 hover:text-neutral-200 hover:bg-white/[0.04] rounded-md transition-colors"
+            className="hidden min-[420px]:flex items-center gap-1 px-2 py-1 text-xs whitespace-nowrap text-neutral-300 hover:text-neutral-200 hover:bg-white/[0.04] rounded-md transition-colors"
             title="Platform Overview"
           >
             <HelpCircle className="h-3.5 w-3.5 text-neutral-300" />
-            <span className="hidden xl:inline text-xs">Overview</span>
+            <span className="hidden 2xl:inline text-xs">Overview</span>
           </button>
 
           {/* QA Copilot Drawer Button */}
           <button
             onClick={onToggleCopilot}
+            aria-label="QA Copilot"
             className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border transition-all ${
               isCopilotOpen
                 ? 'bg-accent-500/10 border-accent-500/30 text-accent-300'
@@ -229,19 +226,27 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <BrainCircuit className={`h-3.5 w-3.5 ${isCopilotOpen ? 'text-accent-400' : 'text-neutral-300'}`} />
-            <span className="font-medium text-xs">QA Copilot</span>
+            <span className="font-medium text-xs hidden sm:inline">QA Copilot</span>
           </button>
 
+          {activeProject?.myRole === 'viewer' && (
+            <span className="text-[11px] font-mono px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300" title="You can read this project but not change it">
+              read-only
+            </span>
+          )}
+
           {user && (
-            <div className="flex items-center gap-2 pl-2 border-l border-white/[0.08]">
-              <span className="hidden md:inline text-xs text-neutral-300" title={user.email}>
+            <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2 border-l border-white/[0.08]">
+              <span className="hidden lg:inline text-xs text-neutral-300 whitespace-nowrap max-w-[140px] truncate" title={user.email}>
                 {user.name}{user.role === 'admin' ? ' · admin' : ''}
               </span>
               <button
                 onClick={onLogout}
-                className="px-2 py-1 text-xs text-neutral-300 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors"
+                aria-label="Sign out"
+                className="px-2 py-1 text-xs text-neutral-300 hover:text-white hover:bg-white/[0.06] rounded-md transition-colors whitespace-nowrap"
               >
-                Sign out
+                <LogOut className="h-3.5 w-3.5 sm:hidden" aria-hidden="true" />
+                <span className="hidden sm:inline">Sign out</span>
               </button>
             </div>
           )}
@@ -249,7 +254,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Sub-nav for mobile screens */}
-      <div className="flex lg:hidden overflow-x-auto px-3 py-1.5 border-t border-white/[0.06] gap-1 scrollbar-none">
+      <div className="flex xl:hidden overflow-x-auto px-3 py-1.5 border-t border-white/[0.06] gap-1 scrollbar-none">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;

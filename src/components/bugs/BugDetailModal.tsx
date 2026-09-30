@@ -92,7 +92,7 @@ ${bug.actualBehavior}
 ${bug.probableCause || 'Under Investigation'}
 
 ### Fix Recommendation
-${bug.suggestedFixDirection || 'Refer to forensic investigation directives'}
+${bug.suggestedFixDirection || 'Not provided'}
 `;
     navigator.clipboard.writeText(md);
     setCopied(true);
@@ -216,7 +216,7 @@ ${bug.suggestedFixDirection || 'Refer to forensic investigation directives'}
             </div>
           </div>
 
-          {/* Root Cause & Forensic Findings */}
+          {/* Root Cause & Findings */}
           {bug.probableCause && (
             <div className="p-3.5 rounded-lg bg-[#141722] border border-white/[0.08]">
               <div className="flex items-center gap-1.5 text-accent-400 font-mono text-xs mb-1">

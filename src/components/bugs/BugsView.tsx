@@ -60,7 +60,7 @@ export const BugsView: React.FC<BugsViewProps> = ({
             <span className="font-mono text-xs text-neutral-300">({bugs.length} recorded)</span>
           </div>
           <p className="text-xs text-neutral-300 mt-1">
-            Grounded bug reports generated from verified test execution failures and AI forensic triage
+            Grounded bug reports generated from verified test execution failures and AI failure triage
           </p>
         </div>
 

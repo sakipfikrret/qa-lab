@@ -4,6 +4,8 @@ import {
 
 export interface AuthUser { id: string; email: string; name: string; role: 'admin' | 'member'; createdAt: string }
 
+export interface ProjectMember { userId: string; name: string; email: string; role: 'owner' | 'editor' | 'viewer' }
+
 class ApiService {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const res = await fetch(endpoint, {
@@ -42,6 +44,30 @@ class ApiService {
   }
   async logout(): Promise<{ success: boolean }> {
     return this.request('/api/auth/logout', { method: 'POST' });
+  }
+  async resetPassword(token: string, password: string): Promise<{ user: AuthUser }> {
+    return this.request('/api/auth/reset', { method: 'POST', body: JSON.stringify({ token, password }) });
+  }
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean }> {
+    return this.request('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+  }
+  async setUserRole(id: string, role: 'admin' | 'member'): Promise<AuthUser> {
+    return this.request(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify({ role }) });
+  }
+  async deleteUser(id: string): Promise<{ success: boolean }> {
+    return this.request(`/api/users/${id}`, { method: 'DELETE' });
+  }
+  async createResetLink(id: string): Promise<{ url: string; expiresAt: string }> {
+    return this.request(`/api/users/${id}/reset-link`, { method: 'POST' });
+  }
+  async listMembers(projectId: string): Promise<ProjectMember[]> {
+    return this.request(`/api/projects/${projectId}/members`);
+  }
+  async setMember(projectId: string, email: string, role: 'owner' | 'editor' | 'viewer'): Promise<ProjectMember[]> {
+    return this.request(`/api/projects/${projectId}/members`, { method: 'PUT', body: JSON.stringify({ email, role }) });
+  }
+  async removeMember(projectId: string, userId: string): Promise<ProjectMember[]> {
+    return this.request(`/api/projects/${projectId}/members/${userId}`, { method: 'DELETE' });
   }
   async listUsers(): Promise<AuthUser[]> {
     return this.request('/api/users');

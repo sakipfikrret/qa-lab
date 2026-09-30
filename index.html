@@ -12,23 +12,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-      // Gracefully ignore WebSocket disconnections in cloud sandboxes / iframe preview
-      window.addEventListener('unhandledrejection', function(event) {
-        var str = (event && event.reason) ? String(event.reason.message || event.reason) : '';
-        if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-      });
-      window.addEventListener('error', function(event) {
-        var str = (event && event.message) ? String(event.message) : '';
-        if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-      });
-    </script>
   </head>
   <body class="bg-neutral-950 text-neutral-100 antialiased selection:bg-neutral-800 selection:text-white">
     <div id="root"></div>

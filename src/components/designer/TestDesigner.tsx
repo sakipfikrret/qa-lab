@@ -90,7 +90,7 @@ export const TestDesigner: React.FC<TestDesignerProps> = ({
         if (res.isRealAI) {
           setGenerationNotice('Generated live with Gemini.');
         } else {
-          setGenerationNotice('Generated using deterministic QA heuristic engine.');
+          setGenerationNotice('AI is not configured: these are generic template test cases. Review before use.');
         }
       }
     } catch (err: any) {
@@ -144,10 +144,10 @@ export const TestDesigner: React.FC<TestDesignerProps> = ({
         <div className="lg:col-span-5 space-y-4">
           <div className="craft-card rounded-lg p-4 space-y-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-300 mb-2">
+              <label htmlFor="testdesigner-f1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-300 mb-2">
                 1. Specification Source
               </label>
-              <select
+              <select id="testdesigner-f1"
                 value={selectedReqId}
                 onChange={(e) => setSelectedReqId(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-[#101217] border border-white/[0.08] rounded-md text-white focus:outline-none focus:border-white/[0.2]"
@@ -213,10 +213,10 @@ export const TestDesigner: React.FC<TestDesignerProps> = ({
 
             {/* Test Focus Scope */}
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-300 mb-2">
+              <label htmlFor="testdesigner-f2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-300 mb-2">
                 3. Test Generation Focus
               </label>
-              <select
+              <select id="testdesigner-f2"
                 value={testFocus}
                 onChange={(e) => setTestFocus(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-[#101217] border border-white/[0.08] rounded-md text-white focus:outline-none focus:border-white/[0.2]"

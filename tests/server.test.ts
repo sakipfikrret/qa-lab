@@ -92,6 +92,57 @@ describe('authentication', () => {
   });
 });
 
+let demoId = '';
+
+describe('project access control', () => {
+  test('a member with no membership sees nothing and gets 404s (not 403s)', async () => {
+    demoId = (await admin.call('GET', '/api/projects')).body[0].id;
+    assert.deepEqual((await member.call('GET', '/api/projects')).body, []);
+    assert.equal((await member.call('GET', `/api/projects/${demoId}`)).status, 404);
+    assert.deepEqual((await member.call('GET', '/api/bugs')).body, []);
+    assert.deepEqual((await member.call('GET', '/api/test-cases')).body, []);
+    assert.equal((await member.call('GET', `/api/test-cases?projectId=${demoId}`)).status, 404);
+    assert.equal((await member.call('POST', '/api/copilot', { message: 'hi', projectId: demoId })).status, 404);
+    assert.equal((await member.call('POST', '/api/test-cases', { title: 't', steps: [{ stepNumber: 1, action: 'a', expected: 'b' }], projectId: demoId })).status, 404);
+  });
+
+  test('viewer can read but not write; editor can write but not manage members', async () => {
+    const add = await admin.call('PUT', `/api/projects/${demoId}/members`, { email: 'bob@lab.dev', role: 'viewer' });
+    assert.equal(add.status, 200);
+    assert.equal((await member.call('GET', `/api/projects/${demoId}`)).status, 200);
+    assert.ok((await member.call('GET', '/api/projects')).body[0].myRole === 'viewer');
+    const tc = (await member.call('GET', '/api/test-cases')).body[0];
+    assert.equal((await member.call('PUT', `/api/test-cases/${tc.id}`, { title: 'nope' })).status, 403);
+    assert.equal((await member.call('POST', '/api/test-runs', { projectId: demoId })).status, 403);
+
+    await admin.call('PUT', `/api/projects/${demoId}/members`, { email: 'bob@lab.dev', role: 'editor' });
+    assert.equal((await member.call('PUT', `/api/test-cases/${tc.id}`, { title: tc.title })).status, 200);
+    assert.equal((await member.call('PUT', `/api/projects/${demoId}/members`, { email: 'ada@lab.dev', role: 'viewer' })).status, 403);
+  });
+
+  test('members created projects are owned by their creator and isolated from others', async () => {
+    const mine = await member.call('POST', '/api/projects', { name: 'Bob private', type: 'API' });
+    assert.equal(mine.status, 201);
+    assert.equal(mine.body.myRole, 'owner');
+    const tc = await member.call('POST', '/api/test-cases', { projectId: mine.body.id, title: 'mine', steps: [{ stepNumber: 1, action: 'a', expected: 'b' }] });
+    assert.equal(tc.status, 201);
+    // A second member never sees it
+    await admin.call('POST', '/api/users', { email: 'eve@lab.dev', name: 'Eve', password: 'yet-another-passphrase' });
+    const eve = new Jar();
+    await eve.call('POST', '/api/auth/login', { email: 'eve@lab.dev', password: 'yet-another-passphrase' });
+    assert.deepEqual((await eve.call('GET', '/api/projects')).body, []);
+    assert.equal((await eve.call('GET', `/api/projects/${mine.body.id}`)).status, 404);
+    // ...but admin sees everything
+    assert.ok((await admin.call('GET', '/api/projects')).body.some((p: any) => p.id === mine.body.id));
+  });
+
+  test('members list is admin-only for users, owner-only for project members', async () => {
+    assert.equal((await member.call('GET', '/api/users')).status, 403);
+    assert.equal((await admin.call('GET', '/api/users')).status, 200);
+    assert.equal((await member.call('GET', `/api/projects/${demoId}/members`)).status, 200);
+  });
+});
+
 describe('data integrity', () => {
   test('new runs start with PENDING steps and consistent ids', async () => {
     const tcs = (await admin.call('GET', '/api/test-cases')).body;
@@ -120,6 +171,30 @@ describe('data integrity', () => {
     assert.equal((await member.call('PUT', `/api/bugs/${bug.id}`, { status: 'Garbage' })).body.status, 'Fixed');
   });
 
+  test('runs only include test cases of their own project and get unique sequential ids', async () => {
+    const tcs = (await admin.call('GET', `/api/test-cases?projectId=${demoId}`)).body;
+    const other = (await admin.call('POST', '/api/projects', { name: 'Other', type: 'API' })).body;
+    const foreign = (await admin.call('POST', '/api/test-cases', { projectId: other.id, title: 'foreign', steps: [{ stepNumber: 1, action: 'a', expected: 'b' }] })).body;
+    const r1 = await admin.call('POST', '/api/test-runs', { projectId: demoId, testCaseIds: [tcs[0].id, foreign.id] });
+    assert.equal(r1.status, 201);
+    assert.deepEqual(r1.body.testCaseIds, [tcs[0].id]);
+    const r2 = await admin.call('POST', '/api/test-runs', { projectId: demoId, testCaseIds: [tcs[0].id] });
+    assert.notEqual(r1.body.runId, r2.body.runId);
+    assert.equal((await admin.call('POST', '/api/test-runs', { projectId: other.id, testCaseIds: [tcs[0].id] })).status, 400);
+  });
+
+  test('result submissions are validated', async () => {
+    const tc = (await admin.call('GET', '/api/test-cases')).body.find((t: any) => t.projectId === demoId);
+    const run = (await admin.call('POST', '/api/test-runs', { projectId: demoId, testCaseIds: [tc.id] })).body;
+    const url = `/api/test-runs/${run.id}/results`;
+    assert.equal((await admin.call('POST', url, { testCaseId: tc.id, status: 'Hacked' })).status, 400);
+    assert.equal((await admin.call('POST', url, { testCaseId: 'not-in-run', status: 'Passed' })).status, 400);
+    assert.equal((await admin.call('POST', url, { testCaseId: tc.id, status: 'Passed', stepResults: [{ stepNumber: 'x', status: 'PASS' }] })).status, 400);
+    const ok = await admin.call('POST', url, { testCaseId: tc.id, status: 'Passed', stepResults: [{ stepNumber: 1, status: 'PASS' }] });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.run.summary.passed, 1);
+  });
+
   test('validation rejects malformed input', async () => {
     assert.equal((await admin.call('POST', '/api/test-cases', { title: 'no steps' })).status, 400);
     assert.equal((await admin.call('POST', '/api/bugs', {})).status, 400);
@@ -138,6 +213,16 @@ describe('AI paths (fake Gemini client)', () => {
     assert.deepEqual(r.body.risks, []);
     const g = await admin.call('POST', '/api/test-cases/generate', { requirementText: 'login flow' });
     assert.equal(g.body.testCases[0].status, 'Needs Review');
+  });
+
+  test('failure analysis without AI admits it found nothing', async () => {
+    setAiClient(null);
+    const tc = (await admin.call('GET', `/api/test-cases?projectId=${demoId}`)).body[0];
+    const r = await admin.call('POST', '/api/failures/analyze', { testCase: tc, actualResult: 'boom' });
+    assert.equal(r.body.isRealAI, false);
+    assert.equal(r.body.analysis.confidence, 'Low');
+    assert.match(r.body.analysis.probableCause, /Not determined/);
+    assert.deepEqual(r.body.analysis.evidenceSupported, []);
   });
 
   test('fenced JSON is parsed, enums are normalised, output is never auto-approved', async () => {
@@ -163,5 +248,69 @@ describe('AI paths (fake Gemini client)', () => {
     const r = await admin.call('POST', '/api/failures/analyze', { testCase: tc, actualResult: 'boom' });
     assert.equal(r.body.analysis.confidence, 'Medium');
     setAiClient(null);
+  });
+});
+
+describe('password management', () => {
+  test('changing a password needs the current one and revokes other sessions', async () => {
+    const a = new Jar(); const b = new Jar();
+    await a.call('POST', '/api/auth/login', { email: 'eve@lab.dev', password: 'yet-another-passphrase' });
+    await b.call('POST', '/api/auth/login', { email: 'eve@lab.dev', password: 'yet-another-passphrase' });
+    assert.equal((await a.call('POST', '/api/auth/password', { currentPassword: 'wrong-wrong-wrong', newPassword: 'brand-new-passphrase' })).status, 403);
+    assert.equal((await a.call('POST', '/api/auth/password', { currentPassword: 'yet-another-passphrase', newPassword: 'short' })).status, 400);
+    assert.equal((await a.call('POST', '/api/auth/password', { currentPassword: 'yet-another-passphrase', newPassword: 'brand-new-passphrase' })).status, 200);
+    assert.equal((await a.call('GET', '/api/projects')).status, 200); // current session re-issued
+    assert.equal((await b.call('GET', '/api/projects')).status, 401); // other device signed out
+    assert.equal((await new Jar().call('POST', '/api/auth/login', { email: 'eve@lab.dev', password: 'yet-another-passphrase' })).status, 401);
+  });
+
+  test('admin reset link is single-use, expires into a new password, and signs old sessions out', async () => {
+    const users = (await admin.call('GET', '/api/users')).body;
+    const eveId = users.find((u: any) => u.email === 'eve@lab.dev').id;
+    assert.equal((await member.call('POST', `/api/users/${eveId}/reset-link`)).status, 403);
+    const link = (await admin.call('POST', `/api/users/${eveId}/reset-link`)).body;
+    const token = new URL(link.url).searchParams.get('reset')!;
+    const fresh = new Jar();
+    assert.equal((await fresh.call('POST', '/api/auth/reset', { token: 'f'.repeat(64), password: 'reset-passphrase-1' })).status, 400);
+    assert.equal((await fresh.call('POST', '/api/auth/reset', { token, password: 'weak' })).status, 400);
+    const ok = await fresh.call('POST', '/api/auth/reset', { token, password: 'reset-passphrase-1' });
+    assert.equal(ok.status, 200);
+    assert.equal((await fresh.call('GET', '/api/projects')).status, 200); // logged in by the reset
+    assert.equal((await new Jar().call('POST', '/api/auth/reset', { token, password: 'reset-passphrase-2' })).status, 400); // single use
+    assert.equal((await new Jar().call('POST', '/api/auth/login', { email: 'eve@lab.dev', password: 'reset-passphrase-1' })).status, 200);
+  });
+
+  test('last admin cannot be demoted or deleted; deleting a user cascades', async () => {
+    const users = (await admin.call('GET', '/api/users')).body;
+    const adaId = users.find((u: any) => u.email === 'ada@lab.dev').id;
+    const bobId = users.find((u: any) => u.email === 'bob@lab.dev').id;
+    assert.equal((await admin.call('PATCH', `/api/users/${adaId}`, { role: 'member' })).status, 409);
+    assert.equal((await admin.call('DELETE', `/api/users/${adaId}`)).status, 409);
+    assert.equal((await admin.call('PATCH', `/api/users/${bobId}`, { role: 'superuser' })).status, 400);
+    assert.equal((await admin.call('DELETE', `/api/users/${bobId}`)).status, 200);
+    assert.equal((await member.call('GET', '/api/projects')).status, 401); // deleted user's session is gone
+    assert.equal((await admin.call('GET', `/api/projects/${demoId}/members`)).body.some((m: any) => m.email === 'bob@lab.dev'), false);
+  });
+});
+
+describe('operations', () => {
+  test('backup is admin-only and is a valid SQLite file', async () => {
+    const eve = new Jar();
+    await eve.call('POST', '/api/auth/login', { email: 'eve@lab.dev', password: 'reset-passphrase-1' });
+    const denied = await fetch(base + '/api/admin/backup', { headers: { cookie: eve.cookie } });
+    assert.equal(denied.status, 403);
+    const res = await fetch(base + '/api/admin/backup', { headers: { cookie: admin.cookie } });
+    assert.equal(res.status, 200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.equal(buf.subarray(0, 15).toString(), 'SQLite format 3');
+  });
+
+  test('malformed JSON and unknown routes answer with JSON errors', async () => {
+    const bad = await fetch(base + '/api/bugs', { method: 'POST', headers: { 'content-type': 'application/json', cookie: admin.cookie }, body: '{oops' });
+    assert.equal(bad.status, 400);
+    assert.deepEqual(await bad.json(), { error: 'Malformed JSON body' });
+    const nf = await fetch(base + '/api/does-not-exist', { headers: { cookie: admin.cookie } });
+    assert.equal(nf.status, 404);
+    assert.deepEqual(await nf.json(), { error: 'Not found' });
   });
 });

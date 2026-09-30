@@ -11,7 +11,8 @@ interface Props {
 }
 
 export const AuthScreen: React.FC<Props> = ({ needsSetup, signupOpen, bootError, onRetry, onAuthenticated }) => {
-  const [mode, setMode] = useState<'login' | 'register'>(needsSetup ? 'register' : 'login');
+  const resetToken = new URLSearchParams(window.location.search).get('reset');
+  const [mode, setMode] = useState<'login' | 'register' | 'reset'>(resetToken ? 'reset' : needsSetup ? 'register' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,13 +20,17 @@ export const AuthScreen: React.FC<Props> = ({ needsSetup, signupOpen, bootError,
   const [error, setError] = useState<string | null>(null);
 
   const isRegister = mode === 'register';
+  const isReset = mode === 'reset';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const res = isRegister ? await api.register(name, email, password) : await api.login(email, password);
+      const res = isReset
+        ? await api.resetPassword(resetToken!, password)
+        : isRegister ? await api.register(name, email, password) : await api.login(email, password);
+      if (isReset) window.history.replaceState({}, '', window.location.pathname);
       onAuthenticated(res.user);
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
@@ -41,10 +46,12 @@ export const AuthScreen: React.FC<Props> = ({ needsSetup, signupOpen, bootError,
       <div className="w-full max-w-sm craft-card rounded-lg p-6 space-y-5">
         <div>
           <h1 className="text-lg font-semibold text-white">
-            {isRegister ? (needsSetup ? 'Create the admin account' : 'Create an account') : 'Sign in to QA//LAB'}
+            {isReset ? 'Set a new password' : isRegister ? (needsSetup ? 'Create the admin account' : 'Create an account') : 'Sign in to QA//LAB'}
           </h1>
           <p className="text-xs text-neutral-300 mt-1">
-            {needsSetup
+            {isReset
+              ? 'Choose a new password for your account. This link works once.'
+              : needsSetup
               ? 'First run: the account you create here becomes the workspace admin.'
               : 'Your workspace is shared with the people an admin has added.'}
           </p>
@@ -64,18 +71,18 @@ export const AuthScreen: React.FC<Props> = ({ needsSetup, signupOpen, bootError,
               <input id="auth-name" className={field} value={name} onChange={e => setName(e.target.value)} autoComplete="name" required maxLength={80} />
             </div>
           )}
-          <div>
+          {!isReset && <div>
             <label htmlFor="auth-email" className="block text-xs text-neutral-300 mb-1">Email</label>
             <input id="auth-email" type="email" className={field} value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" required />
-          </div>
+          </div>}
           <div>
             <label htmlFor="auth-password" className="block text-xs text-neutral-300 mb-1">
-              Password{isRegister ? ' (min. 10 characters)' : ''}
+              {isReset ? 'New password' : 'Password'}{isRegister || isReset ? ' (min. 10 characters)' : ''}
             </label>
             <input
               id="auth-password" type="password" className={field} value={password}
-              onChange={e => setPassword(e.target.value)} required minLength={isRegister ? 10 : 1}
-              autoComplete={isRegister ? 'new-password' : 'current-password'}
+              onChange={e => setPassword(e.target.value)} required minLength={isRegister || isReset ? 10 : 1}
+              autoComplete={isRegister || isReset ? 'new-password' : 'current-password'}
             />
           </div>
 
@@ -86,11 +93,11 @@ export const AuthScreen: React.FC<Props> = ({ needsSetup, signupOpen, bootError,
             className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-neutral-950 bg-neutral-100 hover:bg-white rounded-md disabled:opacity-60"
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isRegister ? 'Create account' : 'Sign in'}
+            {isReset ? 'Set password & sign in' : isRegister ? 'Create account' : 'Sign in'}
           </button>
         </form>
 
-        {!needsSetup && signupOpen && (
+        {!needsSetup && !isReset && signupOpen && (
           <button type="button" onClick={() => setMode(isRegister ? 'login' : 'register')} className="text-xs text-neutral-300 underline">
             {isRegister ? 'I already have an account' : 'Create an account'}
           </button>

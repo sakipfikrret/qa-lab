@@ -311,7 +311,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                     <div className="text-xs text-neutral-200 mt-0.5 line-clamp-1">{bug.title}</div>
                     <div className="text-xs text-neutral-300 mt-1 line-clamp-1">
-                      {bug.probableCause || 'Awaiting deep forensic triage'}
+                      {bug.probableCause || 'Not yet triaged'}
                     </div>
                   </div>
 

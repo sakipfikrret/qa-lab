@@ -1,497 +1,210 @@
 # QA//LAB
 
-> AI-assisted Quality Engineering workspace for test design, execution tracking, evidence collection, failure triage, and defect generation.
+> **Software testing, with an AI investigation layer.**  
+> Turn requirements into test cases, failures into evidence, and test results into actionable engineering insight.
 
-QA//LAB is a full-stack QA application built around a simple workflow:
+QA//LAB is an **AI-assisted software testing and quality engineering platform** engineered with developer-tool ergonomics (Linear / Vercel aesthetic). It addresses the core disconnect in modern QA: testing tools either drown engineers in manual administrative overhead or offer flashy AI chatbots that hallucinate untestable steps.
 
-```text
-Requirement
-    ↓
-Risk Analysis
-    ↓
-Test Case Design
-    ↓
-Manual Execution
-    ↓
-Evidence
-    ↓
-Failure Analysis
-    ↓
-Bug Report
+QA//LAB implements a continuous, grounded Quality Engineering loop:
+
 ```
-
-The project explores how an LLM can assist software testing without treating model output as automatically trusted or production-ready.
+Requirement → AI Test Design → Test Execution → Evidence Intake → AI Forensic Analysis → Bug Report
+```
 
 ---
 
-## What It Does
+## 1. The Core Problem It Solves
 
-QA//LAB connects requirements, test cases, execution results, evidence, AI analysis, and bugs in one workspace.
-
-### Requirement Analysis
-
-Requirements can be submitted as structured or natural-language input. The system can analyze them for potential quality risks such as:
-
-* missing acceptance criteria
-* unclear state transitions
-* security-related concerns
-* negative and edge cases
-* concurrency-related risks
-
-### AI Test Design
-
-The AI layer can generate structured test cases from requirements.
-
-Generated test cases include:
-
-* test ID
-* title and description
-* priority
-* test type
-* preconditions
-* execution steps
-* expected result
-* risk information
-* tags
-* AI notes
-
-AI-generated cases are stored as `Needs Review` rather than being treated as automatically approved tests.
-
-### Test Execution
-
-Test cases can be executed step by step with:
-
-```text
-PASS
-FAIL
-BLOCKED
-```
-
-Execution data includes actual results, errors, notes, and evidence associated with failed steps.
-
-### Evidence Collection
-
-Failed test steps can contain diagnostic evidence such as:
-
-* browser console output
-* HTTP request/response data
-* stack traces
-* error messages
-* execution notes
-
-### AI Failure Triage
-
-A failed test can be analyzed using its expected result, actual result, evidence, and execution context.
-
-The AI response is structured around:
-
-```text
-Failure Summary
-Probable Cause
-Evidence / Citations
-Confidence
-Next Investigation Steps
-Regression Risk
-Suggested Fix Direction
-```
-
-The analysis is treated as an investigation aid, not a verified root-cause determination.
-
-### Bug Generation
-
-Failure analysis can be converted into a structured bug report containing reproduction details, environment information, severity, ownership, and activity history.
+1. **Specification Ambiguity**: Features are specified in informal user stories or PRDs that gloss over negative boundaries, race conditions, and error states.
+2. **Disconnected Failure Triage**: When a test fails in staging or CI, developers spend hours jumping between Sentry, Datadog, browser consoles, and Jira trying to reconstruct the root cause.
+3. **Evidence Amnesia**: Bug reports are frequently filed without actionable evidence, missing reproduction steps, or lacking exact error payloads.
+4. **Untracked Regressions**: Organizations rarely have full-lineage traceability connecting a production bug back to the exact test case and original requirement specification.
 
 ---
 
-## Architecture
+## 2. Core Architecture
 
-```text
-┌───────────────────────────────────────────────┐
-│                  React Client                 │
-│                                               │
-│ Dashboard · Requirements · Test Designer      │
-│ Test Runner · Failure Triage · Bugs           │
-└───────────────────────┬───────────────────────┘
-                        │
-                     REST API
-                        │
-┌───────────────────────▼───────────────────────┐
-│                 Express Server                │
-│                                               │
-│ Auth · Authorization · QA Logic               │
-│ AI Prompt Layer · Persistence · Validation    │
-└───────────────┬───────────────────┬───────────┘
-                │                   │
-                │                   │
-          SQLite Storage       Google GenAI
-                              (optional AI layer)
+QA//LAB is architected as a **full-stack developer application** with a clean separation of concerns:
+
+- **Frontend**: React 19 SPA running on Vite with TypeScript, Tailwind CSS, and Lucide icons.
+- **Backend**: Express server with session-based auth (`/api/*`), hosting the Vite dev middleware in development and static assets in production.
+- **AI Investigation Layer**: Powered server-side by `@google/genai` utilizing a Gemini model (set with `GEMINI_MODEL`, default `gemini-2.5-flash`).
+- **Data Persistence**: SQLite via Node's built-in `node:sqlite` (`data/qalab.db`, WAL mode, transactional writes). Users and sessions live in the same database. Without an API key, AI actions return clearly labelled placeholders.
+
 ```
-
-### Stack
-
-| Layer     | Technology                |
-| --------- | ------------------------- |
-| Frontend  | React 19 + TypeScript     |
-| Build     | Vite                      |
-| Styling   | Tailwind CSS              |
-| Icons     | Lucide React              |
-| Backend   | Express                   |
-| Runtime   | Node.js 22.13+            |
-| Database  | SQLite via `node:sqlite`  |
-| AI        | Google GenAI SDK / Gemini |
-| Testing   | Vitest + Node test runner |
-| Animation | Motion                    |
+┌────────────────────────────────────────────────────────┐
+│                   React 19 Client UI                   │
+│  Dashboard · AI Test Designer · Test Runner · Triage  │
+└───────────────────────────▲────────────────────────────┘
+                            │ REST APIs (/api/*)
+┌───────────────────────────▼────────────────────────────┐
+│                  Express Node Server                   │
+│   Auth · Test Manager · AI Prompt Layer · SQLite       │
+└───────────────────────────▲────────────────────────────┘
+                            │ Server-side SDK
+┌───────────────────────────▼────────────────────────────┐
+│           Gemini (Google GenAI)              │
+│  Test Generation · Failure Triage · Risk Scanner      │
+└────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Domain Model
+## 3. The 6-Stage AI Quality Pipeline
 
-The application keeps explicit relationships between the main QA entities:
+### Stage 1: Requirement Intake & Risk Scanning
+Users submit natural-language requirements, PRDs, or architecture briefs. The **Requirement Risk Scanner** identifies:
+- Missing acceptance criteria
+- Unhandled state transitions
+- Authentication & authorization loopholes
+- Concurrency and distributed locking vulnerabilities
 
-```text
-Project
+### Stage 2: AI Test Designer
+Gemini translates requirements into structured, testable specifications containing:
+- Test ID (`TC-AUTH-001`)
+- Priority (`Critical`, `High`, `Medium`, `Low`)
+- Type (`Functional`, `Security`, `Regression`, `Performance`, `Edge Case`, `Negative Test`)
+- Verified preconditions
+- Granular action-and-expected steps
+- Quality risk evaluation and AI justification notes
+
+### Stage 3: Interactive Execution Runner
+Engineers execute test cases step-by-step with `PASS`, `FAIL`, and `BLOCKED` controls. Execution timers and pass rates update in real time.
+
+### Stage 4: Evidence Capture
+When a step fails, engineers attach concrete diagnostic evidence:
+- Browser console traces
+- HTTP request/response payloads
+- Stack traces and exceptions
+- Qualitative execution notes
+
+### Stage 5: Forensic AI Failure Triage
+With one click, Gemini investigates the failed test by cross-referencing:
+- Expected result vs. actual observed outcome
+- Attached raw evidence and error messages
+- Execution environment context
+
+Gemini outputs:
+1. **Failure Summary**: Concise engineering description
+2. **Probable Cause**: Root cause hypothesis (e.g., Redis lease lock deadlock)
+3. **Grounded Citations**: Direct citations of supplied logs (never invented)
+4. **Calibrated Confidence**: `High`, `Medium`, or `Low`
+5. **Concrete Next Investigation**: Actionable debugging checklist
+6. **Regression Risk & Fix Direction**
+
+### Stage 6: Actionable Bug Generation
+Transforms the forensic investigation into a formal defect report with reproduction steps, preconditions, environment, assigned owner, and activity history.
+
+---
+
+## 4. Domain Data Model
+
+The data model establishes explicit relational lineage across the entire software development lifecycle:
+
+```
+Project (1) ──────────< Requirement (N)
+   │                           │
+   │ (1)                       │ (1)
+   ▼                           ▼
+TestRun (N) ──────────< TestCase (N)
+   │                           │
+   │ (1)                       │ (1)
+   ▼                           ▼
+TestResult (N) <───────────────┘
    │
-   ├── Requirements
-   │       │
-   │       └── Test Cases
-   │                │
-   │                └── Test Results
-   │                         │
-   │                         ├── Evidence
-   │                         ├── AI Failure Analysis
-   │                         └── Bug
+   ├──────────< Evidence (N)
    │
-   └── Test Runs
+   ├─────────── AIFailureAnalysis (1)
+   │
+   └─────────── Bug (1)
 ```
 
-The main entities are:
-
-### Project
-
-Represents the application or system being tested.
-
-### Requirement
-
-Contains the requirement definition, priority, risks, and acceptance criteria.
-
-### Test Case
-
-Contains structured test information, preconditions, execution steps, expected results, and status.
-
-### Test Run
-
-Represents an execution session and its environment.
-
-### Test Result
-
-Stores step-level execution status, actual results, and errors.
-
-### Evidence
-
-Stores diagnostic information associated with failed execution steps.
-
-### AI Failure Analysis
-
-Stores the model's structured investigation result, including confidence and suggested next steps.
-
-### Bug
-
-Represents a formal defect generated from an investigation.
+- **Project**: Target system under test (Web App, API, Mobile App, Custom).
+- **Requirement**: Code (`REQ-AUTH-001`), title, priority, risks, and acceptance criteria.
+- **TestCase**: Code (`TC-AUTH-001`), preconditions, steps, expected result, priority, and tags.
+- **TestRun**: Environment (`Staging`, `Preview`, `Production`, `Local`), duration, status, and summary metrics.
+- **TestResult**: Step outcomes (`PASS` / `FAIL` / `BLOCKED`), actual result, error message, evidence IDs.
+- **Evidence**: Grounded diagnostic artifacts (`console_log`, `network_log`, `error_message`, `notes`).
+- **AIFailureAnalysis**: Root cause hypothesis, confidence level, investigation steps, regression risk.
+- **Bug**: Structured defect ticket (`BUG-101`) with reproduction steps, status, assignee, and timeline history.
 
 ---
 
-## AI Reliability Approach
+## 5. Security Model
 
-The project intentionally treats LLM output as untrusted input.
+- **Authentication**: email + password (scrypt, per-user salt), server-side sessions in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` in production). The first account created becomes the admin; afterwards admins add people in Settings → Team (or set `ALLOW_SIGNUP=true`).
+- **Password management**: users change their own password (other devices are signed out). There is no email service, so an admin issues a one-time reset link (valid 60 minutes, stored hashed, single use) that the user opens to choose a new password.
+- **Roles**: *workspace* roles are `admin` (manages users, can see every project, reset demo data, download backups) and `member`. *Project* roles are `viewer` (read), `editor` (change tests, runs, bugs) and `owner` (also manage access). People you have not added to a project get a 404, not a 403, so project existence is not leaked.
+- **Attribution**: every run result, bug and history entry records who did it.
+- **Request hardening**: same-origin check on writes, login rate limit (10 / 15 min per IP + email), per-user AI rate limit (20 / min), 1 MB body limit, allow-listed fields on updates, enum and shape validation on every write, JSON error responses (no stack pages), strict CSP in production, optional `TRUST_PROXY` for deployments behind a reverse proxy.
+- **API key**: `GEMINI_API_KEY` is read only in `server.ts`; the client bundle never contains it. Gemini calls time out after 45 s (`GEMINI_TIMEOUT_MS`).
+- **Grounded prompts**: prompts tell the model to cite only supplied evidence and to treat user text as data, not instructions. AI output is normalised to known enums and saved as `Needs Review`. This reduces, but does not eliminate, hallucination and prompt-injection risk.
+- **Without an API key** no analysis is invented: risk scans return nothing, failure triage says "not determined", generated test cases are generic templates flagged for review.
+- **Backups**: admins can download a consistent SQLite snapshot (Settings → Backup, or `GET /api/admin/backup`). It contains password hashes; treat it as sensitive. The process also checkpoints and closes the database cleanly on SIGTERM/SIGINT.
+- **Repository URLs** are stored as metadata only; nothing is cloned or executed.
 
-Some of the safeguards implemented in the application include:
+## 6. Local Setup & Execution
 
-### Server-side API key handling
+### Prerequisites
+- Node.js 22.13 or newer (uses the built-in `node:sqlite`, which Node still labels experimental)
+- npm
 
-The Gemini API key is only read on the server.
-
-```text
-Client
-  ✕ GEMINI_API_KEY
-
-Server
-  ✓ GEMINI_API_KEY
-```
-
-### Structured output normalization
-
-Model responses are normalized against known application enums instead of being inserted directly into the data model.
-
-Examples include:
-
-```text
-Priority
-Test Type
-Bug Severity
-Bug Status
-Confidence
-Test Case Status
-```
-
-### Human review
-
-AI-generated test cases are stored as:
-
-```text
-Needs Review
-```
-
-before they can be treated as approved test cases.
-
-### Evidence grounding
-
-The failure-analysis prompt explicitly treats supplied logs, JSON, and user-provided evidence as data to analyze rather than instructions to follow.
-
-### Safe fallback
-
-When the AI provider is unavailable or returns an unusable response, the application falls back to deterministic behavior instead of assuming that the model succeeded.
-
-These controls reduce common failure modes, but they do not eliminate hallucination, prompt injection, or incorrect model reasoning.
-
----
-
-## Security
-
-QA//LAB includes several application-level security controls:
-
-* password hashing with `scrypt` and per-user salts
-* server-side sessions
-* `HttpOnly` cookies
-* `SameSite=Lax`
-* `Secure` cookies in production
-* role-based authorization
-* same-origin protection for write requests
-* login rate limiting
-* per-user AI rate limiting
-* request body size limits
-* allow-listed update fields
-* enum validation
-* security-related response headers
-* server-only AI credentials
-
-Repository URLs are stored as metadata only. The application does not clone or execute repository contents.
-
----
-
-## Project Structure
-
-```text
-qa-lab/
-├── src/
-│   ├── components/
-│   ├── data/
-│   ├── lib/
-│   └── types/
-│
-├── server/
-│   ├── auth.ts
-│   └── db.ts
-│
-├── tests/
-│   ├── server.test.ts
-│   ├── store.test.ts
-│   ├── logic.test.ts
-│   └── qa-engine.test.ts
-│
-├── server.ts
-├── package.json
-├── package-lock.json
-├── tsconfig.json
-├── vite.config.ts
-├── vitest.config.ts
-└── .env.example
-```
-
----
-
-## Getting Started
-
-### Requirements
-
-* Node.js `22.13+`
-* npm
-
-The project uses Node's built-in `node:sqlite` API.
-
-### Installation
+### Quickstart
 
 ```bash
-git clone <your-repository-url>
-cd qa-lab
 npm install
+cp .env.example .env      # optionally add GEMINI_API_KEY
+npm run dev               # http://localhost:3000
 ```
 
-### Environment
+On first visit, create the admin account. For production: `npm run build && NODE_ENV=production npm start` (behind HTTPS).
 
-Create a `.env` file from the example:
+Local single-user shortcut: `AUTH_DISABLED=true npm run dev` skips sign-in. The server refuses to start with this flag when `NODE_ENV=production`.
+
+Run everything:
 
 ```bash
-cp .env.example .env
-```
-
-Add a Gemini API key to enable the AI features:
-
-```env
-GEMINI_API_KEY=your_api_key
-```
-
-The model can optionally be changed with:
-
-```env
-GEMINI_MODEL=gemini-2.5-flash
-```
-
-Without an API key, AI-dependent flows use the application's fallback behavior instead of exposing credentials to the client.
-
-### Run locally
-
-```bash
-npm run dev
-```
-
-Then open:
-
-```text
-http://localhost:3000
-```
-
-### Run type checking
-
-```bash
-npm run lint
-```
-
-### Run tests
-
-```bash
-npm test
-```
-
-### Production build
-
-```bash
-npm run build
-NODE_ENV=production npm start
+npm run lint        # type-check
+npm test            # component tests + API/integration tests (auth, access control, AI paths with a fake client)
+npm run build && npx playwright install chromium && npm run test:e2e   # browser end-to-end tests
 ```
 
 ---
 
-## Demo Workflow
+## 7. Demo Usage & Portfolio Walkthrough
 
-The project includes a seeded demo workspace so the main QA flow can be explored without building a project from scratch.
+QA//LAB includes a pre-seeded **Core Demo Application** (`QA//LAB Core Demo Application`):
 
-A typical walkthrough looks like this:
-
-```text
-1. Open a project
-2. Inspect a requirement
-3. Generate test cases
-4. Review generated cases
-5. Start a test run
-6. Mark a step as FAIL
-7. Add diagnostic evidence
-8. Run AI failure analysis
-9. Review the generated investigation
-10. Create a bug report
-```
-
-The demo dataset is synthetic and is included only to demonstrate the application workflow.
+1. **Dashboard**: View active metrics, 84% test health distribution bar, recent test runs, and open bugs.
+2. **AI Test Designer**: Select an existing requirement (e.g. `REQ-AUTH-002`) or paste custom requirements. Click **"Generate Structured Test Cases"** to watch Gemini synthesize test scenarios with edge cases.
+3. **Execution Runner**: Open run `RUN-2026-03-01`. Walk through the execution queue, toggle step statuses between `PASS`, `FAIL`, and `BLOCKED`, and inspect the attached Redis lock timeout evidence.
+4. **AI Failure Analysis**: Navigate to `TC-AUTH-002` failure triage. Click **"Run Failure Analysis"** to see Gemini infer the concurrency deadlock with high confidence and cited log evidence.
+5. **Bug Report Generator**: Click **"Create Formal Bug Report"** to inspect how the triage immediately turns into `BUG-101` in the bug tracker with full reproduction steps.
+6. **Traceability Matrix**: View how requirements map directly into test cases, execution runs, and production bug tickets.
 
 ---
 
-## Testing
+## 8. Known Limitations
 
-The repository contains tests covering application logic, persistence, QA workflows, and server behavior.
+- Single-process server with a local SQLite file: fine for a team workspace, not for horizontal scaling. Scaling out would need a server database and a shared session store.
+- No email: password resets are admin-issued links, and email addresses are not verified.
+- No SSO / OAuth / 2FA.
+- Viewers are blocked by the server and get a "read-only" badge, but write buttons are not individually hidden in the UI yet.
+- AI features are covered by tests with a fake client; they have not been run against the live Gemini API in this repo's tests. Set `GEMINI_API_KEY` and try them once before relying on them.
+- About ten form labels in rarely used screens are still not programmatically tied to their inputs; accessibility has not had a full audit.
+- `node:sqlite` is marked experimental by Node and prints a warning at startup.
+- AI-generated test cases are saved as `Needs Review`; a human must approve them.
+- Steps start unmarked; a test cannot be saved as passed until every step is marked.
 
-Areas covered include:
+## 9. Future Roadmap
 
-```text
-Authentication
-Authorization
-Session handling
-Request validation
-QA state transitions
-Persistence
-AI response parsing
-AI fallback behavior
-Enum normalization
-Failure analysis flows
-```
-
-AI-related tests use controlled test seams/fake clients rather than requiring a live Gemini request for every test.
+- **CI/CD Webhook Ingestion**: Ingest JUnit XML, Playwright JSON, and Cypress execution traces directly via authenticated API webhooks.
+- **Automated Regression Slicing**: When code diffs are pushed to GitHub, Gemini identifies only the exact subset of test cases that need re-execution.
+- **Flaky Test Heuristic Engine**: Track step duration variance across runs to flag flaky assertions before they cause release delays.
+- **Jira & Linear Bidirectional Sync**: Push generated bug reports directly to Linear issues with linked evidence attachments.
 
 ---
 
-## Current Limitations
+## License
 
-QA//LAB is intentionally a portfolio-scale project rather than a production-scale test infrastructure.
-
-Current limitations include:
-
-* browser tests are not executed by the application itself
-* no Playwright or Cypress execution pipeline yet
-* no CI/JUnit result ingestion yet
-* AI responses are advisory and still require human review
-* SQLite is suitable for the current single-process architecture, not horizontal scaling
-* all authenticated users currently share the same workspace
-* no password reset or email verification flow
-* live Gemini API behavior is not exercised as part of CI
-
-The current execution model focuses on **test management and execution tracking**, rather than replacing browser automation frameworks.
-
----
-
-## Roadmap
-
-Potential next steps:
-
-### Automated Test Execution
-
-Integrate Playwright or Cypress so test cases can be executed automatically instead of being manually marked.
-
-### CI Result Ingestion
-
-Import results from:
-
-```text
-JUnit XML
-Playwright JSON
-Cypress results
-```
-
-and connect them to existing test cases and requirements.
-
-### AI Regression Analysis
-
-Use code changes and historical test data to suggest which tests should be re-run after a change.
-
-### Flaky Test Detection
-
-Analyze historical execution times and outcomes to identify potentially flaky tests.
-
-### Issue Tracker Integration
-
-Connect generated bugs with platforms such as Jira or Linear.
-
-### AI Evaluation Layer
-
-Add a dedicated test suite for evaluating AI behavior itself, including:
-
-```text
-Schema compliance
-Unsupported claims
-Evidence grounding
-Prompt injection resistance
-Regression consistency
-```
-
----
-
-## Why I Built It
-
-QA tooling often sits between two
+Apache-2.0

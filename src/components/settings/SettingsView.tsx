@@ -13,10 +13,13 @@ import {
   Lock
 } from 'lucide-react';
 import { api, AuthUser } from '../../services/api';
+import type { Project } from '../../types/qa';
+import { AccountPanel, ProjectAccessPanel, TeamPanel } from './SettingsPanels';
 
 interface SettingsViewProps {
   hasGeminiKey: boolean;
   user: AuthUser;
+  project: Project;
   onDataReset: () => Promise<void>;
   stats: {
     projectsCount: number;
@@ -29,33 +32,13 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   hasGeminiKey,
   user,
+  project,
   onDataReset,
   stats,
 }) => {
   const [isResetting, setIsResetting] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const isAdmin = user.role === 'admin';
-  const [team, setTeam] = useState<AuthUser[]>([]);
-  const [newName, setNewName] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState<'member' | 'admin'>('member');
-  const [teamMsg, setTeamMsg] = useState<string | null>(null);
-
-  useEffect(() => { api.listUsers().then(setTeam).catch(() => {}); }, []);
-
-  const addMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTeamMsg(null);
-    try {
-      const created = await api.createUser({ name: newName, email: newEmail, password: newPassword, role: newRole });
-      setTeam(prev => [...prev, created]);
-      setNewName(''); setNewEmail(''); setNewPassword('');
-      setTeamMsg(`Added ${created.name}. Share the password with them securely.`);
-    } catch (err: any) {
-      setTeamMsg(err.message);
-    }
-  };
 
   const handleReset = async () => {
     if (!confirm('Reset all QA//LAB data back to pristine baseline state? Any newly created projects or runs will be refreshed.')) {
@@ -78,9 +61,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div className="space-y-6 max-w-3xl">
       {/* Header */}
       <div className="pb-4 border-b border-white/[0.08]">
-        <h1 className="text-xl font-semibold tracking-tight text-white">System Settings & Engine Status</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-white">Settings</h1>
         <p className="text-xs text-neutral-300 mt-1">
-          Backend runtime health, Gemini model telemetry, and entity persistence
+          AI configuration, access control, and data
         </p>
       </div>
 
@@ -99,7 +82,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span className="text-neutral-300 font-mono text-xs">Primary Model Target</span>
             <div className="text-sm font-semibold text-white font-mono">GEMINI_MODEL (server env)</div>
             <p className="text-xs text-neutral-300 mt-1">
-              Active for requirement risk auditing, test synthesis, and forensic failure triage.
+              Active for requirement risk review, test case generation and failure triage.
             </p>
           </div>
 
@@ -108,13 +91,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="flex items-center gap-2">
               <span className={`h-1.5 w-1.5 rounded-full ${hasGeminiKey ? 'bg-emerald-400' : 'bg-neutral-500'}`} />
               <span className="text-sm font-semibold text-white font-mono">
-                {hasGeminiKey ? 'Connected (Cloud)' : 'Local Deterministic Fallback'}
+                {hasGeminiKey ? 'Connected (Cloud)' : 'AI not configured'}
               </span>
             </div>
             <p className="text-xs text-neutral-300 mt-1">
               {hasGeminiKey
                 ? 'Active environment credential detected on server process.'
-                : 'Using deterministic heuristic engine. Provide GEMINI_API_KEY for live reasoning.'}
+                : 'AI actions return clearly labelled placeholders. Set GEMINI_API_KEY on the server to enable real analysis.'}
             </p>
           </div>
         </div>
@@ -181,33 +164,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
       </div>
 
-      {/* Team */}
-      <div className="craft-card rounded-lg p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-white">Team</h2>
-        <ul className="divide-y divide-white/[0.06] text-xs">
-          {team.map(u => (
-            <li key={u.id} className="py-2 flex items-center justify-between">
-              <span className="text-neutral-200">{u.name} <span className="text-neutral-400">· {u.email}</span></span>
-              <span className="font-mono text-neutral-300">{u.role}</span>
-            </li>
-          ))}
-        </ul>
-        {isAdmin ? (
-          <form onSubmit={addMember} className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            <input aria-label="Name" placeholder="Name" value={newName} onChange={e => setNewName(e.target.value)} required className="rounded-md bg-white/[0.04] border border-white/[0.12] px-2.5 py-1.5 text-white" />
-            <input aria-label="Email" type="email" placeholder="Email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required className="rounded-md bg-white/[0.04] border border-white/[0.12] px-2.5 py-1.5 text-white" />
-            <input aria-label="Temporary password" type="password" placeholder="Temporary password (min. 10)" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={10} className="rounded-md bg-white/[0.04] border border-white/[0.12] px-2.5 py-1.5 text-white" />
-            <select aria-label="Role" value={newRole} onChange={e => setNewRole(e.target.value as 'member' | 'admin')} className="rounded-md bg-neutral-900 border border-white/[0.12] px-2.5 py-1.5 text-white">
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-            <button type="submit" className="sm:col-span-2 px-3 py-1.5 font-semibold text-neutral-950 bg-neutral-100 hover:bg-white rounded-md">Add team member</button>
-            {teamMsg && <p role="status" className="sm:col-span-2 text-neutral-300">{teamMsg}</p>}
-          </form>
-        ) : (
-          <p className="text-xs text-neutral-300">Only admins can add people or reset demo data.</p>
-        )}
-      </div>
+      <AccountPanel user={user} />
+      <ProjectAccessPanel project={project} />
+      <TeamPanel user={user} />
+
+      {isAdmin && (
+        <div className="craft-card rounded-lg p-5 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Backup</h2>
+            <p className="text-xs text-neutral-300">Download a consistent snapshot of all data and users (SQLite file). Store it somewhere safe: it contains password hashes.</p>
+          </div>
+          <a href="/api/admin/backup" download className="px-3 py-1.5 text-xs font-semibold text-neutral-950 bg-neutral-100 hover:bg-white rounded-md whitespace-nowrap">Download backup</a>
+        </div>
+      )}
     </div>
   );
 };
